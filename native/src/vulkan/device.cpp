@@ -82,6 +82,17 @@ namespace at {
         uniformAlignment = std::max<u64>(limits.minUniformBufferOffsetAlignment, 16);
         storageAlignment = std::max<u64>(limits.minStorageBufferOffsetAlignment, 16);
         vkGetPhysicalDeviceMemoryProperties(physical, &memory);
+        {
+            uint32_t count = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(physical, &count, nullptr);
+            std::vector<VkQueueFamilyProperties> families(count);
+            vkGetPhysicalDeviceQueueFamilyProperties(physical, &count, families.data());
+            u32 bits = families[queueFamily].timestampValidBits;
+            if (bits > 0 && limits.timestampPeriod > 0.0f) {
+                timestampPeriod = limits.timestampPeriod;
+                timestampMask = bits >= 64 ? ~0ull : (1ull << bits) - 1;
+            }
+        }
 
         VkPhysicalDeviceFeatures supported;
         vkGetPhysicalDeviceFeatures(physical, &supported);

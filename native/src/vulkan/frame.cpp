@@ -25,10 +25,18 @@ namespace at {
 
         VkSemaphoreCreateInfo semaphoreInfo{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         check(vkCreateSemaphore(device.handle, &semaphoreInfo, nullptr, &imageAvailable), "vkCreateSemaphore");
+
+        if (device.timestampMask) {
+            VkQueryPoolCreateInfo queryInfo{.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+            queryInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            queryInfo.queryCount = 2;
+            check(vkCreateQueryPool(device.handle, &queryInfo, nullptr, &timestamps), "vkCreateQueryPool");
+        }
     }
 
     FrameResources::~FrameResources() {
         runReleases();
+        if (timestamps) vkDestroyQueryPool(device.handle, timestamps, nullptr);
         vkDestroySemaphore(device.handle, imageAvailable, nullptr);
         vkDestroyFence(device.handle, fence, nullptr);
         vkDestroyCommandPool(device.handle, pool, nullptr);
@@ -36,6 +44,15 @@ namespace at {
 
     void FrameResources::await() {
         check(vkWaitForFences(device.handle, 1, &fence, VK_TRUE, ~0ull), "vkWaitForFences");
+        if (timed) {
+            timed = false;
+            u64 values[2];
+            if (vkGetQueryPoolResults(device.handle, timestamps, 0, 2, sizeof(values), values, sizeof(u64),
+                                      VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+                u64 ticks = (values[1] - values[0]) & device.timestampMask;
+                device.gpuNanos += static_cast<u64>(static_cast<double>(ticks) * device.timestampPeriod);
+            }
+        }
         runReleases();
     }
 

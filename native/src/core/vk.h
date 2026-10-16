@@ -101,6 +101,11 @@
     X(vkCmdCopyImageToBuffer) \
     X(vkCmdClearAttachments) \
     X(vkCmdPipelineBarrier) \
+    X(vkCreateQueryPool) \
+    X(vkDestroyQueryPool) \
+    X(vkGetQueryPoolResults) \
+    X(vkCmdResetQueryPool) \
+    X(vkCmdWriteTimestamp) \
     X(vkCmdBeginRenderPass) \
     X(vkCmdEndRenderPass) \
     X(vkCreateSwapchainKHR) \

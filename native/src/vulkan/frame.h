@@ -28,6 +28,8 @@ namespace at {
         VkCommandBuffer main = VK_NULL_HANDLE;
         VkFence fence = VK_NULL_HANDLE;
         VkSemaphore imageAvailable = VK_NULL_HANDLE;
+        VkQueryPool timestamps = VK_NULL_HANDLE;
+        bool timed = false;
 
     private:
         void runReleases();

@@ -41,6 +41,15 @@ object Native {
     external fun maxTextureSize(): Int
 
     @JvmStatic
+    external fun driverVersion(): Int
+
+    @JvmStatic
+    external fun gpuTimestamps(): Boolean
+
+    @JvmStatic
+    external fun gpuTime(): Long
+
+    @JvmStatic
     external fun registerLayout(elements: Long, count: Int, vertexSize: Int): Int
 
     @JvmStatic

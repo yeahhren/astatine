@@ -82,6 +82,18 @@ AT_EXPORT(jint, maxTextureSize)(JNIEnv *
     return static_cast<jint>(Renderer::get().context().device->maxImageDimension);
 }
 
+AT_EXPORT(jint, driverVersion)(JNIEnv *, jclass) {
+    return static_cast<jint>(Renderer::get().context().device->driverVersion);
+}
+
+AT_EXPORT(jboolean, gpuTimestamps)(JNIEnv *, jclass) {
+    return Renderer::get().context().device->timestampMask != 0;
+}
+
+AT_EXPORT(jlong, gpuTime)(JNIEnv *, jclass) {
+    return static_cast<jlong>(Renderer::get().context().device->gpuNanos);
+}
+
 AT_EXPORT(jint, registerLayout)(JNIEnv *env
                                 ,
                                 jclass,

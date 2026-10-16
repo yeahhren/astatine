@@ -44,6 +44,9 @@ namespace at {
         float maxSamplerLodBias = 0.0f;
         u64 uniformAlignment = 256;
         u64 storageAlignment = 256;
+        double timestampPeriod = 0.0;
+        u64 timestampMask = 0;
+        mutable u64 gpuNanos = 0;
         VkPhysicalDeviceMemoryProperties memory{};
 
     private:

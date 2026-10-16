@@ -4,6 +4,7 @@ plugins {
     kotlin("jvm") version "2.4.21"
     id("fabric-loom") version "1.18.4"
     id("ploceus") version "1.18.1"
+    `maven-publish`
 }
 
 val modVersion: String by project
@@ -14,6 +15,7 @@ val loaderVersion: String by project
 val featherBuild: String by project
 val fabricKotlinVersion: String by project
 val pylonVersion: String by project
+val oslVersion: String by project
 
 group = mavenGroup
 version = "$modVersion+mc$minecraftVersion"
@@ -50,6 +52,8 @@ dependencies {
     modImplementation("net.fabricmc:fabric-language-kotlin:$fabricKotlinVersion")
 
     modImplementation("pl.tomgirl:pylon:$pylonVersion")
+
+    ploceus.dependOsl(oslVersion)
 }
 
 kotlin {
@@ -114,5 +118,14 @@ tasks.processResources {
     dependsOn(buildNative)
     from(nativeOutputDir) {
         into("natives")
+    }
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("mod") {
+            artifactId = archivesBaseName
+            from(components["java"])
+        }
     }
 }

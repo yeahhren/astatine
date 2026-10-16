@@ -486,6 +486,10 @@ namespace at {
         info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         check(vkBeginCommandBuffer(setup, &info), "vkBeginCommandBuffer");
         check(vkBeginCommandBuffer(main, &info), "vkBeginCommandBuffer");
+        if (frame->timestamps) {
+            vkCmdResetQueryPool(setup, frame->timestamps, 0, 2);
+            vkCmdWriteTimestamp(setup, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame->timestamps, 0);
+        }
         recording = true;
         serial++;
         boundPipeline = VK_NULL_HANDLE;
@@ -508,6 +512,10 @@ namespace at {
     void Renderer::submit(VkSemaphore wait, VkSemaphore signal) {
         endPass();
         finishSetup();
+        if (frame->timestamps) {
+            vkCmdWriteTimestamp(main, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame->timestamps, 1);
+            frame->timed = true;
+        }
         check(vkEndCommandBuffer(setup), "vkEndCommandBuffer");
         check(vkEndCommandBuffer(main), "vkEndCommandBuffer");
         VkCommandBuffer buffers[2] = {setup, main};
