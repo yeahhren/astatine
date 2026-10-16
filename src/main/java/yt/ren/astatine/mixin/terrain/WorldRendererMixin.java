@@ -166,6 +166,7 @@ public abstract class WorldRendererMixin {
 		int y = pos.getY();
 		int z = pos.getZ();
 		Native.terrainMarkDirty(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1, true);
+		TerrainRenderer.markImportant(x, y, z);
 	}
 
 	@Inject(

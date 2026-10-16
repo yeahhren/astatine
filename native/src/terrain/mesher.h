@@ -35,6 +35,8 @@ namespace at::terrain {
         Visibility visibility = 0;
         OpaqueMask opaque{};
         bool empty = true;
+        bool urgent = false;
+        u64 sequence = 0;
     };
 
     std::unique_ptr<MeshResult> mesh(const Tables &tables, const Snapshot &snapshot, float cameraX, float cameraY,

@@ -165,6 +165,9 @@ object Native {
     external fun terrainRelease(snapshot: Long)
 
     @JvmStatic
+    external fun terrainDirtySequence(): Long
+
+    @JvmStatic
     external fun terrainSnapshotClones(snapshot: Long, x: Int, y: Int, z: Int, present: Int): Int
 
     @JvmStatic

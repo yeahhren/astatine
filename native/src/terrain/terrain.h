@@ -96,6 +96,7 @@ namespace at {
             SectionLayer layers[LAYERS];
             u32 frame = 0;
             u32 drawnFrame = 0;
+            u64 dirtySequence = 0;
         };
 
         struct SetupParameters {
@@ -120,7 +121,27 @@ namespace at {
 
             void clear();
 
-            void markDirty(i32 minX, i32 minY, i32 minZ, i32 maxX, i32 maxY, i32 maxZ, bool important);
+            void markDirty(i32 minX, i32 minY, i32 minZ, i32 maxX, i32 maxY, i32 maxZ, bool important, u64 sequence);
+
+            u64 nextDirtySequence() { return ++dirtyCounter; }
+
+            [[nodiscard]] u64 dirtySequence() const { return dirtyCounter; }
+
+            void invalidateClones(i32 minX, i32 minY, i32 minZ, i32 maxX, i32 maxY, i32 maxZ);
+
+            void publish(u32 scheduleCap);
+
+            u32 takeVisible();
+
+            [[nodiscard]] const i32 *visibleData() const { return gameVisible.data(); }
+
+            u32 takeSchedule(i32 *out, u32 max);
+
+            std::string debugText();
+
+            void setDrawn(u32 layer, u32 count) { drawnLayers[layer].store(count, std::memory_order_relaxed); }
+
+            [[nodiscard]] u32 drawn(u32 layer) const { return drawnLayers[layer].load(std::memory_order_relaxed); }
 
             void setup(const SetupParameters &parameters);
 
@@ -135,11 +156,6 @@ namespace at {
             u32 sortTranslucent(u32 limit);
 
             std::string debug() const;
-
-            const i32 *visibleSections(u32 &count) const {
-                count = static_cast<u32>(visibleCoordinates.size() / 3);
-                return visibleCoordinates.data();
-            }
 
             Snapshot *acquireSnapshot();
 
@@ -216,6 +232,16 @@ namespace at {
             std::unordered_map<u64, CloneEntry> clones;
             std::deque<std::pair<u64, u64> > cloneOrder;
             u64 cloneSerial = 0;
+            u64 dirtyCounter = 0;
+
+            std::mutex publishLock;
+            std::vector<i32> publishedVisible;
+            std::vector<i32> gameVisible;
+            std::vector<i32> publishedSchedule;
+            std::vector<i32> scheduleScratch;
+            std::string publishedDebug;
+            std::atomic<bool> debugWanted{false};
+            std::atomic<u32> drawnLayers[LAYERS]{};
             std::shared_ptr<const Tables> tables;
             mutable std::mutex tablesLock;
 

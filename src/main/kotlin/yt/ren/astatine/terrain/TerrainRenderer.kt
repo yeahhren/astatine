@@ -47,6 +47,7 @@ object TerrainRenderer {
     private var renderer: WorldRenderer? = null
     private val blockEntities = LongObjectMap<List<BlockEntity>>()
     private val globalBlockEntities = LongObjectMap<List<BlockEntity>>()
+    private val important = LinkedHashSet<Long>()
     private var lastFrameNanos = 0L
     private var frameNanos = 4_000_000.0
     private var snapshotNanos = 100_000.0
@@ -86,6 +87,7 @@ object TerrainRenderer {
 
     private fun settle() {
         generation++
+        important.clear()
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
         while (inFlight.get() > 0 && System.nanoTime() < deadline) Thread.sleep(1)
         completed.clear()
@@ -102,7 +104,38 @@ object TerrainRenderer {
         val eyeHeight = camera.eyeHeight.toDouble()
         val inOpaque = spectator && world.getBlockState(BlockPos(x, y + eyeHeight, z)).block.isSolidRender
         Native.terrainSetup(x, y, z, eyeHeight, frame, lookFace(camera, tickDelta, minecraft), minecraft.smartCull, spectator, inOpaque)
+        buildImportant(world, x, y + eyeHeight, z)
         schedule(world)
+    }
+
+    @JvmStatic
+    fun markImportant(x: Int, y: Int, z: Int) {
+        for (sx in ((x - 1) shr 4)..((x + 1) shr 4)) {
+            for (sz in ((z - 1) shr 4)..((z + 1) shr 4)) {
+                for (sy in ((y - 1) shr 4)..((y + 1) shr 4)) {
+                    if (sy in 0..15) important += key(sx, sy, sz)
+                }
+            }
+        }
+    }
+
+    private fun buildImportant(world: ClientWorld, x: Double, y: Double, z: Double) {
+        if (important.isEmpty()) return
+        val cameraX = MathHelper.floor(x) shr 4
+        val cameraY = MathHelper.floor(y) shr 4
+        val cameraZ = MathHelper.floor(z) shr 4
+        var built = false
+        for (key in important) {
+            val sectionX = (key shr 26).toInt() shl 10 shr 10
+            val sectionZ = ((key shr 4) and 0x3FFFFF).toInt() shl 10 shr 10
+            val sectionY = (key and 15).toInt()
+            if (Math.abs(sectionX - cameraX) > 1 || Math.abs(sectionY - cameraY) > 1 || Math.abs(sectionZ - cameraZ) > 1) continue
+            val snapshot = Native.terrainSnapshot()
+            runNow(SectionBuild(sectionX, sectionY, sectionZ, 0, generation, Snapshots.fill(snapshot, world, sectionX, sectionY, sectionZ, 0, true)))
+            built = true
+        }
+        important.clear()
+        if (built) accept()
     }
 
     private fun lookFace(camera: Entity, tickDelta: Double, minecraft: Minecraft): Int {

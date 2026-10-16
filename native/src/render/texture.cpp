@@ -19,12 +19,16 @@ namespace at {
     } // namespace tex
 
     Texture::Texture() {
-        Renderer::get().textures.insert(this);
+        Renderer &renderer = Renderer::get();
+        std::lock_guard guard(renderer.texturesLock);
+        renderer.textures.insert(this);
     }
 
     Texture::~Texture() {
         detach();
-        Renderer::get().textures.erase(this);
+        Renderer &renderer = Renderer::get();
+        std::lock_guard guard(renderer.texturesLock);
+        renderer.textures.erase(this);
     }
 
     void Texture::attach(GpuImage *target, bool isRenderTarget) {

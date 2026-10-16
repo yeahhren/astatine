@@ -178,6 +178,12 @@ namespace at::terrain {
         centerZ = INT32_MIN;
         clones.clear();
         cloneOrder.clear();
+        {
+            std::lock_guard publishGuard(publishLock);
+            publishedVisible.clear();
+            publishedSchedule.clear();
+            gameVisible.clear();
+        }
         std::lock_guard guard(resultsLock);
         results.clear();
     }
@@ -253,19 +259,65 @@ namespace at::terrain {
         }
     }
 
-    void Terrain::markDirty(i32 minX, i32 minY, i32 minZ, i32 maxX, i32 maxY, i32 maxZ, bool important) {
+    void Terrain::invalidateClones(i32 minX, i32 minY, i32 minZ, i32 maxX, i32 maxY, i32 maxZ) {
+        i32 fromX = floorDiv(minX, 16), toX = floorDiv(maxX, 16);
+        i32 fromY = std::max(floorDiv(minY, 16), 0), toY = std::min(floorDiv(maxY, 16), 15);
+        i32 fromZ = floorDiv(minZ, 16), toZ = floorDiv(maxZ, 16);
+        for (i32 x = fromX; x <= toX; x++) {
+            for (i32 z = fromZ; z <= toZ; z++) {
+                for (i32 y = fromY; y <= toY; y++) clones.erase(cloneKey(x, y, z));
+            }
+        }
+    }
+
+    void Terrain::publish(u32 scheduleCap) {
+        std::lock_guard guard(publishLock);
+        publishedVisible = visibleCoordinates;
+        auto queued = static_cast<u32>(publishedSchedule.size() / 5);
+        if (queued < scheduleCap) {
+            scheduleScratch.resize(static_cast<std::size_t>(scheduleCap - queued) * 5);
+            u32 count = schedule(scheduleScratch.data(), scheduleCap - queued);
+            publishedSchedule.insert(publishedSchedule.end(), scheduleScratch.begin(),
+                                     scheduleScratch.begin() + static_cast<std::ptrdiff_t>(count) * 5);
+        }
+        if (debugWanted.exchange(false, std::memory_order_relaxed)) publishedDebug = debug();
+    }
+
+    u32 Terrain::takeVisible() {
+        std::lock_guard guard(publishLock);
+        gameVisible = publishedVisible;
+        return static_cast<u32>(gameVisible.size() / 3);
+    }
+
+    u32 Terrain::takeSchedule(i32 *out, u32 max) {
+        std::lock_guard guard(publishLock);
+        u32 count = std::min(max, static_cast<u32>(publishedSchedule.size() / 5));
+        if (count == 0) return 0;
+        std::memcpy(out, publishedSchedule.data(), static_cast<std::size_t>(count) * 5 * sizeof(i32));
+        publishedSchedule.erase(publishedSchedule.begin(), publishedSchedule.begin() + static_cast<std::ptrdiff_t>(count) * 5);
+        return count;
+    }
+
+    std::string Terrain::debugText() {
+        debugWanted.store(true, std::memory_order_relaxed);
+        std::lock_guard guard(publishLock);
+        return publishedDebug;
+    }
+
+    void Terrain::markDirty(i32 minX, i32 minY, i32 minZ, i32 maxX, i32 maxY, i32 maxZ, bool important,
+                            u64 sequence) {
         i32 fromX = floorDiv(minX, 16), toX = floorDiv(maxX, 16);
         i32 fromY = std::max(floorDiv(minY, 16), 0), toY = std::min(floorDiv(maxY, 16), 15);
         i32 fromZ = floorDiv(minZ, 16), toZ = floorDiv(maxZ, 16);
         for (i32 x = fromX; x <= toX; x++) {
             for (i32 z = fromZ; z <= toZ; z++) {
                 for (i32 y = fromY; y <= toY; y++) {
-                    clones.erase(cloneKey(x, y, z));
                     Section *section = at(x, y, z);
                     if (!section) continue;
                     section->version++;
                     section->dirty = true;
                     section->important |= important;
+                    section->dirtySequence = std::max(section->dirtySequence, sequence);
                 }
             }
         }
@@ -602,6 +654,8 @@ namespace at::terrain {
             result->z = snapshot->sectionZ;
             result->version = snapshot->version;
         }
+        result->urgent = (snapshot->flags & Snapshot::URGENT) != 0;
+        result->sequence = snapshot->sequence;
         releaseSnapshot(snapshot);
         std::lock_guard guard(resultsLock);
         results.push_back(std::move(result));
@@ -610,8 +664,8 @@ namespace at::terrain {
     void Terrain::apply(MeshResult &result) {
         Section *section = at(result.x, result.y, result.z);
         if (!section) return;
-        if (section->building && section->buildingVersion == result.version) section->building = false;
-        if (result.version < section->builtVersion) return;
+        if (!result.urgent && section->building && section->buildingVersion == result.version) section->building = false;
+        if (!result.urgent && result.version < section->builtVersion) return;
         bool hadLayer[LAYERS];
         for (u32 index = 0; index < LAYERS; index++) hadLayer[index] = section->layers[index].vertices > 0;
         releaseGeometry(*section);
@@ -721,7 +775,9 @@ namespace at::terrain {
                 break;
             }
         }
-        section->builtVersion = result.version;
+        section->builtVersion = result.urgent
+                                    ? (section->dirtySequence <= result.sequence ? section->version : section->builtVersion)
+                                    : result.version;
         section->compiled = true;
         section->visibility = result.visibility;
         if (!section->opaque) section->opaque = std::make_unique<OpaqueMask>();
@@ -738,8 +794,15 @@ namespace at::terrain {
         }
         u64 spent = 0;
         u32 applied = 0;
+        std::stable_partition(pending.begin(), pending.end(),
+                              [](const std::unique_ptr<MeshResult> &result) { return result->urgent; });
         std::size_t index = 0;
         for (; index < pending.size(); index++) {
+            if (pending[index]->urgent) {
+                apply(*pending[index]);
+                applied++;
+                continue;
+            }
             if (index > 0 && (spent >= budget || u64(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                   std::chrono::steady_clock::now() - started).count()) >= budgetNanos))
                 break;

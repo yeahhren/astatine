@@ -64,6 +64,12 @@ namespace at::op {
         FRAMEBUFFER_BLIT = 107,
         PRESENT = 108,
         SET_VSYNC = 109,
+        TERRAIN_SETUP = 110,
+        TERRAIN_MARK_DIRTY = 111,
+        TERRAIN_ABORT = 112,
+        TERRAIN_UPLOAD = 113,
+        TERRAIN_SORT = 114,
+        TERRAIN_DRAW = 115,
     };
 
     constexpr u32 HEADER = 16;
@@ -122,5 +128,30 @@ namespace at::op {
     struct Flag {
         u32 value;
         u32 pad;
+    };
+
+    struct TerrainSetup {
+        double x, y, z, eyeHeight;
+        i32 frame;
+        i32 lookFace;
+        u32 flags;
+        u32 scheduleCap;
+    };
+
+    struct TerrainBox {
+        i32 minX, minY, minZ, maxX, maxY, maxZ;
+        u32 important;
+        u32 pad;
+        u64 sequence;
+    };
+
+    struct TerrainAbort {
+        i32 x, y, z;
+        u32 version;
+    };
+
+    struct TerrainUpload {
+        u64 budget;
+        u64 nanos;
     };
 } // namespace at::op

@@ -5,13 +5,124 @@
 #include "render/renderer.h"
 #include "render/targets.h"
 #include "render/texture.h"
+#include "terrain/terrain.h"
 
 #include <algorithm>
 #include <string>
 
 namespace at {
     void Renderer::drain() {
+        waitIdle();
+    }
+
+    Renderer::Chunk Renderer::takeChunk() {
+        {
+            std::lock_guard guard(queueLock);
+            if (!freeChunks.empty()) {
+                Chunk chunk = freeChunks.back();
+                freeChunks.pop_back();
+                return chunk;
+            }
+        }
+        Chunk chunk{static_cast<u8 *>(std::calloc(1, CHUNK_SIZE)), CHUNK_SIZE};
+        if (!chunk.data) fail("Out of memory for a command chunk");
+        return chunk;
+    }
+
+    void Renderer::recycle(const Chunk &chunk) {
+        if (chunk.capacity != CHUNK_SIZE) {
+            std::free(chunk.data);
+            return;
+        }
+        store<u32>(chunk.data, 0);
+        freeChunks.push_back(chunk);
+    }
+
+    void Renderer::enqueue(const Chunk &chunk) {
+        {
+            std::lock_guard guard(queueLock);
+            queue.push_back(chunk);
+        }
+        queueReady.notify_one();
+    }
+
+    void Renderer::rethrow() {
+        std::string message;
+        {
+            std::lock_guard guard(queueLock);
+            message.swap(threadError);
+        }
+        if (!message.empty()) fail("Render thread failed: " + message);
+    }
+
+    void Renderer::threadLoop() {
+        while (true) {
+            Chunk chunk;
+            {
+                std::unique_lock guard(queueLock);
+                queueReady.wait(guard, [this] { return stopping || !queue.empty(); });
+                if (queue.empty()) return;
+                chunk = queue.front();
+                queue.pop_front();
+                executing = true;
+            }
+            try {
+                executeChunk(chunk);
+            } catch (const std::exception &error) {
+                std::lock_guard guard(queueLock);
+                if (threadError.empty()) threadError = error.what();
+            } catch (...) {
+                std::lock_guard guard(queueLock);
+                if (threadError.empty()) threadError = "unknown native error";
+            }
+            {
+                std::lock_guard guard(queueLock);
+                executing = false;
+                recycle(chunk);
+            }
+            queueIdle.notify_all();
+        }
+    }
+
+    void Renderer::startThread() {
+        if (threaded) return;
+        stopping = false;
+        threaded = true;
+        renderThread = std::thread([this] { threadLoop(); });
+    }
+
+    void Renderer::stopThread() {
+        if (!threaded) return;
         publish();
+        {
+            std::lock_guard guard(queueLock);
+            stopping = true;
+        }
+        queueReady.notify_all();
+        renderThread.join();
+        threaded = false;
+    }
+
+    void Renderer::waitIdle() {
+        publish();
+        if (threaded) {
+            std::unique_lock guard(queueLock);
+            queueIdle.wait(guard, [this] { return (queue.empty() && !executing) || !threadError.empty(); });
+        }
+        rethrow();
+    }
+
+    void Renderer::finishFrame() {
+        framesSubmitted++;
+        publish();
+        if (threaded) {
+            std::unique_lock guard(queueLock);
+            queueIdle.wait(guard, [this] {
+                return framesSubmitted - framesPresented <= FRAMES_AHEAD || !threadError.empty() ||
+                       (queue.empty() && !executing);
+            });
+        }
+        rethrow();
     }
 
     void Renderer::executeChunk(const Chunk &chunk) {
@@ -23,7 +134,14 @@ namespace at {
 
     void Renderer::publish() {
         if (pendingDedicated.data) flushDedicated();
-        executeChunk(writing);
+        if (!threaded) {
+            executeChunk(writing);
+            return;
+        }
+        if (load<u32>(writing.data) == 0) return;
+        enqueue(writing);
+        writing = takeChunk();
+        streamCellValue = static_cast<u64>(reinterpret_cast<std::uintptr_t>(writing.data));
     }
 
     u8 *Renderer::append(u32 code, u32 bytes) {
@@ -56,6 +174,10 @@ namespace at {
     void Renderer::flushDedicated() {
         Chunk dedicated = pendingDedicated;
         pendingDedicated = {};
+        if (threaded) {
+            enqueue(dedicated);
+            return;
+        }
         try {
             executeChunk(dedicated);
         } catch (...) {
@@ -118,10 +240,50 @@ namespace at {
             }
             case op::PRESENT:
                 present();
+                {
+                    std::lock_guard guard(queueLock);
+                    framesPresented++;
+                }
+                queueIdle.notify_all();
                 break;
             case op::SET_VSYNC:
                 setVsync(load<op::Flag>(data).value != 0);
                 break;
+            case op::TERRAIN_SETUP: {
+                auto command = load<op::TerrainSetup>(data);
+                terrain::SetupParameters parameters{
+                    .x = command.x, .y = command.y, .z = command.z, .eyeHeight = command.eyeHeight,
+                    .frame = command.frame, .lookFace = command.lookFace, .smartCull = (command.flags & 1) != 0,
+                    .spectator = (command.flags & 2) != 0, .cameraInOpaque = (command.flags & 4) != 0
+                };
+                terrain->setup(parameters);
+                terrain->publish(command.scheduleCap);
+                break;
+            }
+            case op::TERRAIN_MARK_DIRTY: {
+                auto command = load<op::TerrainBox>(data);
+                terrain->markDirty(command.minX, command.minY, command.minZ, command.maxX, command.maxY, command.maxZ,
+                                   command.important != 0, command.sequence);
+                break;
+            }
+            case op::TERRAIN_ABORT: {
+                auto command = load<op::TerrainAbort>(data);
+                terrain->abort(command.x, command.y, command.z, command.version);
+                break;
+            }
+            case op::TERRAIN_UPLOAD: {
+                auto command = load<op::TerrainUpload>(data);
+                terrain->upload(command.budget, command.nanos);
+                break;
+            }
+            case op::TERRAIN_SORT:
+                terrain->sortTranslucent(load<op::Flag>(data).value);
+                break;
+            case op::TERRAIN_DRAW: {
+                u32 layer = load<op::Flag>(data).value & 3;
+                terrain->setDrawn(layer, terrain->draw(layer));
+                break;
+            }
             default:
                 fail("Corrupt command stream, native opcode " + std::to_string(code) + " with " +
                      std::to_string(bytes) + " bytes");

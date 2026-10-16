@@ -16,6 +16,7 @@ namespace at::terrain {
 
     struct alignas(64) Snapshot {
         static constexpr u32 SKY = 1;
+        static constexpr u32 URGENT = 2;
         static constexpr u32 SECTIONS = 27;
         static constexpr u32 COLUMNS = 9;
 
@@ -33,7 +34,8 @@ namespace at::terrain {
         u32 presentMask;
         u32 skyMask;
         u32 loadedMask;
-        u8 header[32];
+        u64 sequence;
+        u8 header[24];
 
         u16 states[SECTIONS][4096];
         u8 blockLight[SECTIONS][2048];

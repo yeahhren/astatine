@@ -43,10 +43,12 @@ namespace at {
             fail(
                 "Unable to create a Vulkan surface");
         new Renderer(windowSurface, system, std::move(cacheFile));
+        instance->startThread();
     }
 
     void Renderer::shutdown() {
         if (instance) {
+            instance->stopThread();
             delete instance;
             instance = nullptr;
         }
@@ -150,7 +152,12 @@ namespace at {
         std::vector<Framebuffer *> liveFramebuffers(framebuffers.begin(), framebuffers.end());
         for (Framebuffer *framebuffer: liveFramebuffers) delete framebuffer;
         framebuffers.clear();
-        for (Texture *texture: textures) texture->detach();
+        std::vector<Texture *> liveTextures;
+        {
+            std::lock_guard guard(texturesLock);
+            liveTextures.assign(textures.begin(), textures.end());
+        }
+        for (Texture *texture: liveTextures) texture->detach();
         for (auto &resources: frames) resources->await();
         frames.clear();
         quadIndices.reset();

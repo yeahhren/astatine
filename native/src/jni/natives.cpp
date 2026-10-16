@@ -53,7 +53,7 @@ AT_EXPORT(void, present)(JNIEnv *env, jclass) {
     jvm::handled(env, [&] {
         Renderer &renderer = Renderer::get();
         renderer.command(op::PRESENT, op::Flag{0, 0});
-        renderer.publish();
+        renderer.finishFrame();
     });
 }
 
@@ -103,6 +103,7 @@ AT_EXPORT(jint, registerLayout)(JNIEnv *env
                                 jlong elements, jint count, jint vertexSize
 ) {
     return jvm::handled(env, [&]() -> jint {
+        Renderer::get().waitIdle();
         return static_cast<jint>(Renderer::get().layouts.registerFormat(pointer<const i32>(elements),
                                                                         static_cast<u32>(count),
                                                                         static_cast<u32>(vertexSize)));
@@ -194,6 +195,7 @@ AT_EXPORT(jint, textureWidth)(JNIEnv *
                               jclass,
                               jlong texture
 ) {
+    Renderer::get().waitIdle();
     return static_cast<jint>(pointer<Texture>(texture)->width());
 }
 
@@ -202,6 +204,7 @@ AT_EXPORT(jint, textureHeight)(JNIEnv *
                                jclass,
                                jlong texture
 ) {
+    Renderer::get().waitIdle();
     return static_cast<jint>(pointer<Texture>(texture)->height());
 }
 

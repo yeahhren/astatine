@@ -8,7 +8,12 @@
 #include "render/vertex_layout.h"
 #include "vulkan/presenter.h"
 
+#include <atomic>
+#include <condition_variable>
+#include <deque>
 #include <functional>
+#include <mutex>
+#include <thread>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -141,6 +146,16 @@ namespace at {
 
         void publish();
 
+        void waitIdle();
+
+        void finishFrame();
+
+        void startThread();
+
+        void stopThread();
+
+        std::mutex texturesLock;
+
         u8 *append(u32 code, u32 bytes);
 
         template<typename T>
@@ -266,11 +281,35 @@ namespace at {
 
         void flushDedicated();
 
+        void enqueue(const Chunk &chunk);
+
+        Chunk takeChunk();
+
+        void recycle(const Chunk &chunk);
+
+        void threadLoop();
+
+        void rethrow();
+
         void executeNative(u32 code, const u8 *data, u32 bytes);
 
         Chunk writing;
         Chunk pendingDedicated;
         u64 streamCellValue = 0;
+
+        static constexpr u64 FRAMES_AHEAD = 1;
+        std::mutex queueLock;
+        std::condition_variable queueReady;
+        std::condition_variable queueIdle;
+        std::deque<Chunk> queue;
+        std::vector<Chunk> freeChunks;
+        bool executing = false;
+        bool stopping = false;
+        bool threaded = false;
+        u64 framesSubmitted = 0;
+        u64 framesPresented = 0;
+        std::string threadError;
+        std::thread renderThread;
 
         FrameResources *frame = nullptr;
         VkCommandBuffer setup = VK_NULL_HANDLE;

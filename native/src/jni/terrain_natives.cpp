@@ -1,6 +1,7 @@
 #include "jni/jvm.h"
 
 #include "core/error.h"
+#include "render/commands.h"
 #include "render/renderer.h"
 #include "terrain/snapshot.h"
 #include "terrain/tables.h"
@@ -9,9 +10,11 @@
 using namespace at;
 using namespace at::terrain;
 
-static Terrain &mainTerrain() {
+static constexpr u32 SCHEDULE_CAP = 64;
+
+static Terrain &exclusiveTerrain() {
     Renderer &renderer = Renderer::get();
-    renderer.drain();
+    renderer.waitIdle();
     return *renderer.terrain;
 }
 
@@ -37,45 +40,52 @@ AT_EXPORT(void, terrainTables)(JNIEnv *env, jclass, jlong blocks, jlong models, 
 }
 
 AT_EXPORT(void, terrainConfigure)(JNIEnv *env, jclass, jint viewDistance) {
-    jvm::handled(env, [&] { mainTerrain().configure(viewDistance); });
+    jvm::handled(env, [&] { exclusiveTerrain().configure(viewDistance); });
 }
 
 AT_EXPORT(void, terrainClear)(JNIEnv *env, jclass) {
     jvm::handled(env, [&] {
-        if (Renderer::ready()) mainTerrain().clear();
+        if (Renderer::ready()) exclusiveTerrain().clear();
     });
 }
 
 AT_EXPORT(void, terrainMarkDirty)(JNIEnv *env, jclass, jint minX, jint minY, jint minZ, jint maxX, jint maxY, jint maxZ,
                                   jboolean important) {
-    jvm::handled(env, [&] { Renderer::get().terrain->markDirty(minX, minY, minZ, maxX, maxY, maxZ, important); });
+    jvm::handled(env, [&] {
+        Renderer &renderer = Renderer::get();
+        renderer.terrain->invalidateClones(minX, minY, minZ, maxX, maxY, maxZ);
+        u64 sequence = renderer.terrain->nextDirtySequence();
+        renderer.command(op::TERRAIN_MARK_DIRTY, op::TerrainBox{
+                             minX, minY, minZ, maxX, maxY, maxZ, important ? 1u : 0u, 0, sequence
+                         });
+    });
 }
 
 AT_EXPORT(void, terrainSetup)(JNIEnv *env, jclass, jdouble x, jdouble y, jdouble z, jdouble eyeHeight, jint frame,
                               jint lookFace,
                               jboolean smartCull, jboolean spectator, jboolean cameraInOpaque) {
     jvm::handled(env, [&] {
-        SetupParameters parameters{
-            .x = x, .y = y, .z = z, .eyeHeight = eyeHeight, .frame = frame, .lookFace = lookFace,
-            .smartCull = smartCull != 0, .spectator = spectator != 0, .cameraInOpaque = cameraInOpaque != 0
-        };
-        mainTerrain().setup(parameters);
+        u32 flags = (smartCull ? 1u : 0u) | (spectator ? 2u : 0u) | (cameraInOpaque ? 4u : 0u);
+        Renderer::get().command(op::TERRAIN_SETUP, op::TerrainSetup{
+                                    x, y, z, eyeHeight, frame, lookFace, flags, SCHEDULE_CAP
+                                });
     });
+}
+
+AT_EXPORT(jlong, terrainDirtySequence)(JNIEnv *, jclass) {
+    return static_cast<jlong>(Renderer::get().terrain->dirtySequence());
 }
 
 AT_EXPORT(jint, terrainVisibleCount)(JNIEnv *
                                      ,
                                      jclass) {
-    u32 count = 0;
-    Renderer::get().terrain->visibleSections(count);
-    return static_cast<jint>(count);
+    return static_cast<jint>(Renderer::get().terrain->takeVisible());
 }
 
 AT_EXPORT(jlong, terrainVisibleAddress)(JNIEnv *
                                         ,
                                         jclass) {
-    u32 count = 0;
-    return handle(Renderer::get().terrain->visibleSections(count));
+    return handle(Renderer::get().terrain->visibleData());
 }
 
 AT_EXPORT(jint, terrainSchedule)(JNIEnv *env
@@ -84,12 +94,14 @@ AT_EXPORT(jint, terrainSchedule)(JNIEnv *env
                                  jlong out, jint max
 ) {
     return jvm::handled(env, [&]() -> jint {
-        return static_cast<jint>(Renderer::get().terrain->schedule(pointer<i32>(out), static_cast<u32>(max)));
+        return static_cast<jint>(Renderer::get().terrain->takeSchedule(pointer<i32>(out), static_cast<u32>(max)));
     });
 }
 
 AT_EXPORT(void, terrainAbort)(JNIEnv *env, jclass, jint x, jint y, jint z, jint version) {
-    jvm::handled(env, [&] { Renderer::get().terrain->abort(x, y, z, static_cast<u32>(version)); });
+    jvm::handled(env, [&] {
+        Renderer::get().command(op::TERRAIN_ABORT, op::TerrainAbort{x, y, z, static_cast<u32>(version)});
+    });
 }
 
 AT_EXPORT(jlong, terrainSnapshot)(JNIEnv *env
@@ -130,7 +142,10 @@ AT_EXPORT(jint, terrainUpload)(JNIEnv *env
                                jlong budget, jlong budgetNanos
 ) {
     return jvm::handled(env, [&]() -> jint {
-        return static_cast<jint>(mainTerrain().upload(static_cast<u64>(budget), static_cast<u64>(budgetNanos)));
+        Renderer::get().command(op::TERRAIN_UPLOAD, op::TerrainUpload{
+                                    static_cast<u64>(budget), static_cast<u64>(budgetNanos)
+                                });
+        return 0;
     });
 }
 
@@ -140,7 +155,8 @@ AT_EXPORT(jint, terrainSort)(JNIEnv *env
                              jint limit
 ) {
     return jvm::handled(env, [&]() -> jint {
-        return static_cast<jint>(mainTerrain().sortTranslucent(static_cast<u32>(limit)));
+        Renderer::get().command(op::TERRAIN_SORT, op::Flag{static_cast<u32>(limit), 0});
+        return 0;
     });
 }
 
@@ -150,13 +166,16 @@ AT_EXPORT(jint, terrainDraw)(JNIEnv *env
                              jint layer
 ) {
     return jvm::handled(env, [&]() -> jint {
-        return static_cast<jint>(mainTerrain().draw(static_cast<u32>(layer) & 3));
+        Renderer &renderer = Renderer::get();
+        u32 index = static_cast<u32>(layer) & 3;
+        renderer.command(op::TERRAIN_DRAW, op::Flag{index, 0});
+        return static_cast<jint>(renderer.terrain->drawn(index));
     });
 }
 
 AT_EXPORT(jstring, terrainDebug)(JNIEnv *env
                                  ,
                                  jclass) {
-    std::string text = Renderer::get().terrain->debug();
+    std::string text = Renderer::get().terrain->debugText();
     return env->NewStringUTF(text.c_str());
 }

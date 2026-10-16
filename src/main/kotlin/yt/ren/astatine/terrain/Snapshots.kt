@@ -12,6 +12,7 @@ object Snapshots {
     const val SECTION_Z = 8L
     const val VERSION = 12L
     const val FLAGS = 16L
+    const val SEQUENCE = 32L
     const val PRESENT_MASK = 20L
     const val SKY_MASK = 24L
     const val LOADED_MASK = 28L
@@ -31,14 +32,16 @@ object Snapshots {
     const val OVERRIDE_FLOW = 8
 
     private const val SKY = 1
+    private const val URGENT = 2
 
-    fun fill(snapshot: Long, world: ClientWorld, x: Int, y: Int, z: Int, version: Int): WorldSlice {
+    fun fill(snapshot: Long, world: ClientWorld, x: Int, y: Int, z: Int, version: Int, urgent: Boolean = false): WorldSlice {
         val sky = !world.dimension.hasNoSky()
         Memory.putInt(snapshot + SECTION_X, x)
         Memory.putInt(snapshot + SECTION_Y, y)
         Memory.putInt(snapshot + SECTION_Z, z)
         Memory.putInt(snapshot + VERSION, version)
-        Memory.putInt(snapshot + FLAGS, if (sky) SKY else 0)
+        Memory.putInt(snapshot + FLAGS, (if (sky) SKY else 0) or (if (urgent) URGENT else 0))
+        Memory.putLong(snapshot + SEQUENCE, if (urgent) Native.terrainDirtySequence() else 0L)
         Memory.fill(snapshot + OVERRIDES, 4096, 0)
         var present = 0
         var skyMask = 0
