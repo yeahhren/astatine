@@ -759,7 +759,7 @@ namespace at::terrain {
             for (const SectionLayer &layer: section->layers) any |= layer.vertices > 0;
             if (any) rendered++;
         }
-        return log::format("C: %u/%u,%s D: %d, B: %u, Q: %u, M: %lluMB", rendered, total, compiled, viewDistance, building, dirty,
+        return log::format("C: %u/%u,%u D: %d, B: %u, Q: %u, M: %lluMB", rendered, total, compiled, viewDistance, building, dirty,
                            arena->usedVertices() * sizeof(Vertex) >> 20);
     }
 } // namespace at::terrain

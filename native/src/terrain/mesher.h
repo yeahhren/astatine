@@ -11,11 +11,17 @@
 namespace at::terrain {
     struct Snapshot;
 
+    enum class SortMode : u8 { DISTANCE, NONE, PLANES };
+
     struct LayerMesh {
         std::vector<Vertex> vertices;
         u32 bucketQuads[BUCKETS] = {};
         std::vector<float> centroids;
+        SortMode sortMode = SortMode::DISTANCE;
+        std::vector<float> planes[3];
     };
+
+    u32 planeSignature(const std::vector<float> (&planes)[3], float x, float y, float z);
 
     struct MeshResult {
         i32 x = 0, y = 0, z = 0;

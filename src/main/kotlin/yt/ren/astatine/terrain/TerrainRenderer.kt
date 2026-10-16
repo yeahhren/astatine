@@ -185,13 +185,6 @@ object TerrainRenderer {
 
     @JvmStatic
     fun sortTranslucent(camera: Entity) {
-        val dx = camera.x - lastSortX
-        val dy = camera.y - lastSortY
-        val dz = camera.z - lastSortZ
-        if (dx * dx + dy * dy + dz * dz <= 1.0) return
-        lastSortX = camera.x
-        lastSortY = camera.y
-        lastSortZ = camera.z
         Native.terrainSort(TRANSLUCENT_SORTS)
     }
 
