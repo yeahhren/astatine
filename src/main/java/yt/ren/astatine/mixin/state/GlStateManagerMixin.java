@@ -10,6 +10,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import yt.ren.astatine.Native;
 import yt.ren.astatine.memory.Memory;
 import yt.ren.astatine.render.GL;
+import yt.ren.astatine.render.GLState;
 import yt.ren.astatine.render.TextureBinding;
 
 @Mixin(GlStateManager.class)
@@ -158,7 +159,7 @@ public abstract class GlStateManagerMixin {
 
 	@Redirect(method = "getFloat", at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glGetFloat(ILjava/nio/FloatBuffer;)V"))
 	private static void astatine$getFloat(int name, FloatBuffer buffer) {
-		Native.getMatrix(name, Memory.INSTANCE.address(buffer) + buffer.position() * 4L);
+		GLState.readMatrix(name, Memory.INSTANCE.address(buffer) + buffer.position() * 4L);
 	}
 
 	@Redirect(method = "ortho", at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glOrtho(DDDDDD)V"))

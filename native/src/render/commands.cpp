@@ -6,12 +6,126 @@
 #include "render/targets.h"
 #include "render/texture.h"
 
+#include <algorithm>
+#include <string>
+
 namespace at {
     void Renderer::drain() {
-        u32 used = load<u32>(commandBuffer);
+        publish();
+    }
+
+    void Renderer::executeChunk(const Chunk &chunk) {
+        u32 used = load<u32>(chunk.data);
         if (used == 0) return;
-        store<u32>(commandBuffer, 0);
-        execute(commandBuffer + op::HEADER, commandBuffer + op::HEADER + used);
+        store<u32>(chunk.data, 0);
+        execute(chunk.data + op::HEADER, chunk.data + op::HEADER + used);
+    }
+
+    void Renderer::publish() {
+        if (pendingDedicated.data) flushDedicated();
+        executeChunk(writing);
+    }
+
+    u8 *Renderer::append(u32 code, u32 bytes) {
+        u32 padded = (bytes + 3u) & ~3u;
+        u32 total = 8 + padded;
+        if (op::HEADER + total > writing.capacity) {
+            publish();
+            Chunk dedicated{static_cast<u8 *>(std::calloc(1, op::HEADER + total)), op::HEADER + total};
+            if (!dedicated.data) fail("Out of memory for a command of " + std::to_string(bytes) + " bytes");
+            store<u32>(dedicated.data, total);
+            u8 *at = dedicated.data + op::HEADER;
+            store<u32>(at, code);
+            store<u32>(at + 4, padded);
+            pendingDedicated = dedicated;
+            return at + 8;
+        }
+        if (pendingDedicated.data) flushDedicated();
+        u32 used = load<u32>(writing.data);
+        if (op::HEADER + used + total > writing.capacity) {
+            publish();
+            used = 0;
+        }
+        u8 *at = writing.data + op::HEADER + used;
+        store<u32>(at, code);
+        store<u32>(at + 4, padded);
+        store<u32>(writing.data, used + total);
+        return at + 8;
+    }
+
+    void Renderer::flushDedicated() {
+        Chunk dedicated = pendingDedicated;
+        pendingDedicated = {};
+        try {
+            executeChunk(dedicated);
+        } catch (...) {
+            std::free(dedicated.data);
+            throw;
+        }
+        std::free(dedicated.data);
+    }
+
+    bool Renderer::canBlitSurface() const {
+        return presenter && presenter->blitTarget.load(std::memory_order_relaxed);
+    }
+
+    void Renderer::executeNative(u32 code, const u8 *data, u32 bytes) {
+        switch (code) {
+            case op::DRAW: {
+                auto command = load<op::Draw>(data);
+                draw(command.layout, command.mode, data + sizeof(op::Draw), command.count);
+                break;
+            }
+            case op::DRAW_MESH: {
+                auto command = load<op::DrawMesh>(data);
+                drawMesh(reinterpret_cast<Mesh *>(command.mesh), command.mode);
+                break;
+            }
+            case op::TEXTURE_ALLOCATE: {
+                auto command = load<op::TextureAllocate>(data);
+                Texture *target = command.texture ? reinterpret_cast<Texture *>(command.texture) : state.activeBoundTexture();
+                if (!target) break;
+                u32 levels = static_cast<u32>(std::max(target->maxLevel, 0)) + 1;
+                allocateTexture(target, std::min(levels, 17u), command.width, command.height);
+                break;
+            }
+            case op::TEXTURE_UPLOAD: {
+                auto command = load<op::TextureUpload>(data);
+                Texture *target = command.texture ? reinterpret_cast<Texture *>(command.texture) : state.activeBoundTexture();
+                if (!target) break;
+                uploadTexture(target, command.level, command.x, command.y, command.width, command.height,
+                              data + sizeof(op::TextureUpload), command.width);
+                break;
+            }
+            case op::TEXTURE_DETACH:
+                reinterpret_cast<Texture *>(load<op::Handle>(data).value)->detach();
+                break;
+            case op::COPY_FROM_TARGET: {
+                auto command = load<op::CopyFromTarget>(data);
+                if (Texture *texture = state.activeBoundTexture()) {
+                    copyFromTarget(texture, command.level, command.destinationX, command.destinationY, command.x,
+                                   command.y, command.width, command.height);
+                }
+                break;
+            }
+            case op::FRAMEBUFFER_RELEASE:
+                releaseFramebuffer(reinterpret_cast<Framebuffer *>(load<op::Handle>(data).value));
+                break;
+            case op::FRAMEBUFFER_BLIT: {
+                auto command = load<op::Blit>(data);
+                blitToSurface(reinterpret_cast<Framebuffer *>(command.framebuffer), command.width, command.height);
+                break;
+            }
+            case op::PRESENT:
+                present();
+                break;
+            case op::SET_VSYNC:
+                setVsync(load<op::Flag>(data).value != 0);
+                break;
+            default:
+                fail("Corrupt command stream, native opcode " + std::to_string(code) + " with " +
+                     std::to_string(bytes) + " bytes");
+        }
     }
 
     void Renderer::execute(const u8 *cursor, const u8 *end) {
@@ -188,7 +302,14 @@ namespace at {
                 case op::RELEASE_MESH: releaseMesh(reinterpret_cast<Mesh *>(p(0)));
                     slots = 2;
                     break;
-                default: fail("Corrupt command stream, opcode " + std::to_string(code));
+                default:
+                    if (code >= op::FIRST_NATIVE) {
+                        u32 bytes = load<u32>(cursor + 4);
+                        executeNative(code, cursor + 8, bytes);
+                        slots = 1 + bytes / 4;
+                        break;
+                    }
+                    fail("Corrupt command stream, opcode " + std::to_string(code));
             }
             cursor += 4 + slots * 4;
         }

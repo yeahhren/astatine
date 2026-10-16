@@ -53,7 +53,74 @@ namespace at::op {
         CLEAR = 47,
         BIND_FRAMEBUFFER = 48,
         RELEASE_MESH = 49,
+
+        DRAW = 100,
+        DRAW_MESH = 101,
+        TEXTURE_ALLOCATE = 102,
+        TEXTURE_UPLOAD = 103,
+        TEXTURE_DETACH = 104,
+        COPY_FROM_TARGET = 105,
+        FRAMEBUFFER_RELEASE = 106,
+        FRAMEBUFFER_BLIT = 107,
+        PRESENT = 108,
+        SET_VSYNC = 109,
     };
 
     constexpr u32 HEADER = 16;
+    constexpr u32 FIRST_NATIVE = 100;
+
+    struct Draw {
+        u32 layout;
+        i32 mode;
+        u32 count;
+        u32 bytes;
+    };
+
+    struct DrawMesh {
+        u64 mesh;
+        i32 mode;
+        u32 pad;
+    };
+
+    struct TextureAllocate {
+        u64 texture;
+        u32 width;
+        u32 height;
+    };
+
+    struct TextureUpload {
+        u64 texture;
+        u32 level;
+        i32 x;
+        i32 y;
+        u32 width;
+        u32 height;
+        u32 pad;
+    };
+
+    struct Handle {
+        u64 value;
+    };
+
+    struct CopyFromTarget {
+        u32 level;
+        i32 destinationX;
+        i32 destinationY;
+        i32 x;
+        i32 y;
+        u32 width;
+        u32 height;
+        u32 pad;
+    };
+
+    struct Blit {
+        u64 framebuffer;
+        u32 width;
+        u32 height;
+    };
+
+    struct Flag {
+        u32 value;
+        u32 pad;
+    };
 } // namespace at::op

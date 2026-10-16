@@ -139,7 +139,20 @@ namespace at {
 
         void drain();
 
-        u8 *streamBase() const { return commandBuffer; }
+        void publish();
+
+        u8 *append(u32 code, u32 bytes);
+
+        template<typename T>
+        void command(u32 code, const T &header, const void *extra = nullptr, u32 extraBytes = 0) {
+            u8 *at = append(code, static_cast<u32>(sizeof(T)) + extraBytes);
+            std::memcpy(at, &header, sizeof(T));
+            if (extraBytes) std::memcpy(at + sizeof(T), extra, extraBytes);
+        }
+
+        u8 *streamCell() { return reinterpret_cast<u8 *>(&streamCellValue); }
+
+        [[nodiscard]] bool canBlitSurface() const;
 
         bool prepare(u64 bytes, u64 sectionBytes = 0);
 
@@ -183,7 +196,7 @@ namespace at {
     private:
         static constexpr u32 CLEAR_COLOR = 1;
         static constexpr u32 CLEAR_DEPTH = 2;
-        static constexpr u64 COMMAND_BUFFER_SIZE = 1ull << 20;
+        static constexpr u32 CHUNK_SIZE = 4u << 20;
 
         static Renderer *instance;
 
@@ -244,7 +257,20 @@ namespace at {
         std::unique_ptr<FrameStream> sections;
         std::unique_ptr<GpuBuffer> quadIndices;
         std::unique_ptr<class Texture> fallback;
-        u8 *commandBuffer = nullptr;
+        struct Chunk {
+            u8 *data = nullptr;
+            u32 capacity = 0;
+        };
+
+        void executeChunk(const Chunk &chunk);
+
+        void flushDedicated();
+
+        void executeNative(u32 code, const u8 *data, u32 bytes);
+
+        Chunk writing;
+        Chunk pendingDedicated;
+        u64 streamCellValue = 0;
 
         FrameResources *frame = nullptr;
         VkCommandBuffer setup = VK_NULL_HANDLE;

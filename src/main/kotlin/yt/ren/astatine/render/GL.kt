@@ -8,7 +8,7 @@ import yt.ren.astatine.memory.Memory
 // I wanted to avoid GL emulation, but seems like that's effectively impossible
 object GL {
     private const val HEADER = 16
-    private const val CAPACITY = 1 shl 20
+    private const val CAPACITY = (4 shl 20) - 64
 
     private const val ENABLE = 1
     private const val DISABLE = 2
@@ -60,18 +60,20 @@ object GL {
     private const val BIND_FRAMEBUFFER = 48
     private const val RELEASE_MESH = 49
 
-    var base = 0L
+    private var cell = 0L
 
     fun attach() {
-        base = Native.streamAddress()
+        cell = Native.streamAddress()
     }
 
     private inline fun begin(code: Int, slots: Int): Long {
         val bytes = 4 + slots * 4
+        var base = Memory.getLong(cell)
         var used = Memory.getInt(base)
         if (used + bytes > CAPACITY) {
             Native.flush()
-            used = 0
+            base = Memory.getLong(cell)
+            used = Memory.getInt(base)
         }
         Memory.putInt(base, used + bytes)
         val at = base + HEADER + used
@@ -200,7 +202,10 @@ object GL {
         op(TEXGEN_PLANE, coordinate, parameter, x, y, z, w)
 
     @JvmStatic
-    fun activeTexture(unit: Int) = op(ACTIVE_TEXTURE, unit)
+    fun activeTexture(unit: Int) {
+        GLState.activeTexture(unit)
+        op(ACTIVE_TEXTURE, unit)
+    }
 
     @JvmStatic
     fun bindTexture(texture: Long) = op(BIND_TEXTURE, texture)
@@ -210,6 +215,7 @@ object GL {
 
     @JvmStatic
     fun viewport(x: Int, y: Int, width: Int, height: Int) {
+        GLState.viewport(x, y, width, height)
         val at = begin(VIEWPORT, 4)
         Memory.putInt(at, x)
         Memory.putInt(at + 4, y)
@@ -253,19 +259,32 @@ object GL {
     fun popAttributes() = op(POP_ATTRIB)
 
     @JvmStatic
-    fun matrixMode(mode: Int) = op(MATRIX_MODE, mode)
+    fun matrixMode(mode: Int) {
+        GLState.matrixMode(mode)
+        op(MATRIX_MODE, mode)
+    }
 
     @JvmStatic
-    fun loadIdentity() = op(LOAD_IDENTITY)
+    fun loadIdentity() {
+        GLState.loadIdentity()
+        op(LOAD_IDENTITY)
+    }
 
     @JvmStatic
-    fun pushMatrix() = op(PUSH_MATRIX)
+    fun pushMatrix() {
+        GLState.pushMatrix()
+        op(PUSH_MATRIX)
+    }
 
     @JvmStatic
-    fun popMatrix() = op(POP_MATRIX)
+    fun popMatrix() {
+        GLState.popMatrix()
+        op(POP_MATRIX)
+    }
 
     @JvmStatic
     fun ortho(left: Float, right: Float, bottom: Float, top: Float, near: Float, far: Float) {
+        GLState.ortho(left, right, bottom, top, near, far)
         val at = begin(ORTHO, 6)
         Memory.putFloat(at, left)
         Memory.putFloat(at + 4, right)
@@ -276,19 +295,34 @@ object GL {
     }
 
     @JvmStatic
-    fun rotate(angle: Float, x: Float, y: Float, z: Float) = op(ROTATE, angle, x, y, z)
+    fun rotate(angle: Float, x: Float, y: Float, z: Float) {
+        GLState.rotate(angle, x, y, z)
+        op(ROTATE, angle, x, y, z)
+    }
 
     @JvmStatic
-    fun scale(x: Float, y: Float, z: Float) = op(SCALE, x, y, z)
+    fun scale(x: Float, y: Float, z: Float) {
+        GLState.scale(x, y, z)
+        op(SCALE, x, y, z)
+    }
 
     @JvmStatic
-    fun translate(x: Float, y: Float, z: Float) = op(TRANSLATE, x, y, z)
+    fun translate(x: Float, y: Float, z: Float) {
+        GLState.translate(x, y, z)
+        op(TRANSLATE, x, y, z)
+    }
 
     @JvmStatic
-    fun multMatrix(matrix: Long) = Memory.copy(matrix, begin(MULT_MATRIX, 16), 64)
+    fun multMatrix(matrix: Long) {
+        GLState.multMatrix(matrix)
+        Memory.copy(matrix, begin(MULT_MATRIX, 16), 64)
+    }
 
     @JvmStatic
-    fun perspective(fovy: Float, aspect: Float, near: Float, far: Float) = op(PERSPECTIVE, fovy, aspect, near, far)
+    fun perspective(fovy: Float, aspect: Float, near: Float, far: Float) {
+        GLState.perspective(fovy, aspect, near, far)
+        op(PERSPECTIVE, fovy, aspect, near, far)
+    }
 
     @JvmStatic
     fun light(light: Int, parameter: Int, x: Float, y: Float, z: Float, w: Float) = op(LIGHT, light, parameter, x, y, z, w)

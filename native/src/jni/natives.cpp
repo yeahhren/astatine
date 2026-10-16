@@ -40,24 +40,25 @@ AT_EXPORT(void, shutdown)(JNIEnv *env, jclass) {
 AT_EXPORT(jlong, streamAddress)(JNIEnv *
                                 ,
                                 jclass) {
-    return handle(Renderer::get().streamBase());
+    return handle(Renderer::get().streamCell());
 }
 
 AT_EXPORT(void, flush)(JNIEnv *env, jclass) {
     jvm::handled(env, [&] {
-        if (Renderer::ready()) Renderer::get().drain();
+        if (Renderer::ready()) Renderer::get().publish();
     });
 }
 
 AT_EXPORT(void, present)(JNIEnv *env, jclass) {
     jvm::handled(env, [&] {
-        RENDERER();
-        renderer.present();
+        Renderer &renderer = Renderer::get();
+        renderer.command(op::PRESENT, op::Flag{0, 0});
+        renderer.publish();
     });
 }
 
 AT_EXPORT(void, setVsync)(JNIEnv *env, jclass, jboolean enabled) {
-    jvm::handled(env, [&] { Renderer::get().setVsync(enabled); });
+    jvm::handled(env, [&] { Renderer::get().command(op::SET_VSYNC, op::Flag{enabled ? 1u : 0u, 0}); });
 }
 
 AT_EXPORT(jstring, deviceName)(JNIEnv *env
@@ -110,15 +111,16 @@ AT_EXPORT(jint, registerLayout)(JNIEnv *env
 
 AT_EXPORT(void, draw)(JNIEnv *env, jclass, jint layout, jint mode, jlong source, jint count) {
     jvm::handled(env, [&] {
-        RENDERER();
-        renderer.draw(static_cast<u32>(layout), mode, pointer<const u8>(source), static_cast<u32>(count));
+        Renderer &renderer = Renderer::get();
+        u32 bytes = static_cast<u32>(count) * renderer.layouts[static_cast<u32>(layout)].stride;
+        renderer.command(op::DRAW, op::Draw{static_cast<u32>(layout), mode, static_cast<u32>(count), bytes},
+                         pointer<const u8>(source), bytes);
     });
 }
 
 AT_EXPORT(void, drawMesh)(JNIEnv *env, jclass, jlong mesh, jint mode) {
     jvm::handled(env, [&] {
-        RENDERER();
-        renderer.drawMesh(pointer<Mesh>(mesh), mode);
+        Renderer::get().command(op::DRAW_MESH, op::DrawMesh{static_cast<u64>(mesh), mode, 0});
     });
 }
 
@@ -142,49 +144,48 @@ AT_EXPORT(jlong, textureCreate)(JNIEnv *
 
 AT_EXPORT(void, textureAllocate)(JNIEnv *env, jclass, jlong texture, jint width, jint height) {
     jvm::handled(env, [&] {
-        RENDERER();
-        auto *target = pointer<Texture>(texture);
-        u32 levels = static_cast<u32>(std::max(target->maxLevel, 0)) + 1;
-        renderer.allocateTexture(target, std::min(levels, 17u), static_cast<u32>(width), static_cast<u32>(height));
+        if (!texture) return;
+        Renderer::get().command(op::TEXTURE_ALLOCATE, op::TextureAllocate{
+                                    static_cast<u64>(texture), static_cast<u32>(width), static_cast<u32>(height)
+                                });
     });
 }
 
 AT_EXPORT(void, textureUpload)(JNIEnv *env, jclass, jlong texture, jint level, jint x, jint y, jint width, jint height,
                                jlong source) {
     jvm::handled(env, [&] {
-        RENDERER();
-        renderer.uploadTexture(pointer<Texture>(texture), static_cast<u32>(level), x, y, static_cast<u32>(width),
-                               static_cast<u32>(height),
-                               pointer<const u8>(source), static_cast<u32>(width));
+        if (!texture) return;
+        u32 bytes = static_cast<u32>(width) * static_cast<u32>(height) * 4;
+        Renderer::get().command(op::TEXTURE_UPLOAD, op::TextureUpload{
+                                    static_cast<u64>(texture), static_cast<u32>(level), x, y, static_cast<u32>(width),
+                                    static_cast<u32>(height), 0
+                                }, pointer<const u8>(source), bytes);
     });
 }
 
 AT_EXPORT(void, textureAllocateActive)(JNIEnv *env, jclass, jint width, jint height) {
     jvm::handled(env, [&] {
-        RENDERER();
-        Texture *target = renderer.state.activeBoundTexture();
-        if (!target) return;
-        u32 levels = static_cast<u32>(std::max(target->maxLevel, 0)) + 1;
-        renderer.allocateTexture(target, std::min(levels, 17u), static_cast<u32>(width), static_cast<u32>(height));
+        Renderer::get().command(op::TEXTURE_ALLOCATE, op::TextureAllocate{
+                                    0, static_cast<u32>(width), static_cast<u32>(height)
+                                });
     });
 }
 
 AT_EXPORT(void, textureUploadActive)(JNIEnv *env, jclass, jint level, jint x, jint y, jint width, jint height,
                                      jlong source) {
     jvm::handled(env, [&] {
-        RENDERER();
-        Texture *target = renderer.state.activeBoundTexture();
-        if (!target) return;
-        renderer.uploadTexture(target, static_cast<u32>(level), x, y, static_cast<u32>(width), static_cast<u32>(height),
-                               pointer<const u8>(source), static_cast<u32>(width));
+        u32 bytes = static_cast<u32>(width) * static_cast<u32>(height) * 4;
+        Renderer::get().command(op::TEXTURE_UPLOAD, op::TextureUpload{
+                                    0, static_cast<u32>(level), x, y, static_cast<u32>(width),
+                                    static_cast<u32>(height), 0
+                                }, pointer<const u8>(source), bytes);
     });
 }
 
 AT_EXPORT(void, textureDetach)(JNIEnv *env, jclass, jlong texture) {
     jvm::handled(env, [&] {
         if (!Renderer::ready()) return;
-        RENDERER();
-        pointer<Texture>(texture)->detach();
+        Renderer::get().command(op::TEXTURE_DETACH, op::Handle{static_cast<u64>(texture)});
     });
 }
 
@@ -224,12 +225,10 @@ AT_EXPORT(void, copyFromTarget)(JNIEnv *env, jclass, jint level, jint destinatio
                                 jint width,
                                 jint height) {
     jvm::handled(env, [&] {
-        RENDERER();
-        if (Texture *texture = renderer.state.activeBoundTexture()) {
-            renderer.copyFromTarget(texture, static_cast<u32>(level), destinationX, destinationY, x, y,
-                                    static_cast<u32>(width),
-                                    static_cast<u32>(height));
-        }
+        Renderer::get().command(op::COPY_FROM_TARGET, op::CopyFromTarget{
+                                    static_cast<u32>(level), destinationX, destinationY, x, y,
+                                    static_cast<u32>(width), static_cast<u32>(height), 0
+                                });
     });
 }
 
@@ -247,16 +246,18 @@ AT_EXPORT(jlong, framebufferCreate)(JNIEnv *env
 AT_EXPORT(void, framebufferRelease)(JNIEnv *env, jclass, jlong framebuffer) {
     jvm::handled(env, [&] {
         if (!Renderer::ready()) return;
-        RENDERER();
-        renderer.releaseFramebuffer(pointer<Framebuffer>(framebuffer));
+        Renderer::get().command(op::FRAMEBUFFER_RELEASE, op::Handle{static_cast<u64>(framebuffer)});
     });
 }
 
 AT_EXPORT(jboolean, framebufferBlit)(JNIEnv *env, jclass, jlong framebuffer, jint width, jint height) {
     return jvm::handled(env, [&]() -> jboolean {
-        RENDERER();
-        return renderer.blitToSurface(pointer<Framebuffer>(framebuffer), static_cast<u32>(width),
-                                      static_cast<u32>(height));
+        Renderer &renderer = Renderer::get();
+        if (!framebuffer || !renderer.canBlitSurface()) return static_cast<jboolean>(false);
+        renderer.command(op::FRAMEBUFFER_BLIT, op::Blit{
+                             static_cast<u64>(framebuffer), static_cast<u32>(width), static_cast<u32>(height)
+                         });
+        return static_cast<jboolean>(true);
     });
 }
 

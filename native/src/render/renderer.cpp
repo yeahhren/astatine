@@ -121,7 +121,9 @@ namespace at {
         RenderPassType *passes[3] = {offscreenDepthPass.get(), offscreenColorPass.get(), surfacePass.get()};
         context.pipelines->prewarm(layouts, passes);
         createFrameSet();
-        commandBuffer = static_cast<u8 *>(std::calloc(1, COMMAND_BUFFER_SIZE + 64));
+        writing.data = static_cast<u8 *>(std::calloc(1, CHUNK_SIZE));
+        writing.capacity = CHUNK_SIZE;
+        streamCellValue = static_cast<u64>(reinterpret_cast<std::uintptr_t>(writing.data));
         quadIndices = std::make_unique<GpuBuffer>(device, *context.allocator, u64(MAX_QUADS) * 6 * 4 * 2,
                                                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -168,7 +170,7 @@ namespace at {
         context.shaders.reset();
         context.allocator.reset();
         context.device.reset();
-        std::free(commandBuffer);
+        std::free(writing.data);
     }
 
     void Renderer::defer(std::function<void()> release) {
@@ -472,7 +474,8 @@ namespace at {
         ensureRecording();
         endPass();
         if (!surface->acquireImage()) return true;
-        if (width != surface->width() || height != surface->height()) return false;
+        width = surface->width();
+        height = surface->height();
         VkImage destination = surface->image();
         VkImage image = source->color->handle;
         imageBarrier(main, image, VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,

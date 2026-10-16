@@ -3,6 +3,7 @@
 #include "core/common.h"
 #include "core/vk.h"
 
+#include <atomic>
 #include <vector>
 
 namespace at {
@@ -46,7 +47,7 @@ namespace at {
 
         VkFormat format = VK_FORMAT_B8G8R8A8_UNORM;
         VkImageLayout layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        bool blitTarget = false;
+        std::atomic<bool> blitTarget{false};
         u32 width = 0;
         u32 height = 0;
         std::vector<VkImage> images;
