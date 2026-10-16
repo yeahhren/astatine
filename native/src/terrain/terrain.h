@@ -72,6 +72,7 @@ namespace at {
             std::unique_ptr<OpaqueMask> opaque;
             SectionLayer layers[LAYERS];
             u32 frame = 0;
+            u32 drawnFrame = 0;
         };
 
         struct SetupParameters {
@@ -104,7 +105,7 @@ namespace at {
 
             void abort(i32 x, i32 y, i32 z, u32 version);
 
-            u32 upload(u64 budget);
+            u32 upload(u64 budget, u64 budgetNanos);
 
             u32 draw(u32 layer);
 
@@ -136,7 +137,7 @@ namespace at {
 
             void recenter(double x, double z);
 
-            void reset(Section &section, i32 x, i32 y, i32 z) const;
+            void reset(Section &section, i32 x, i32 y, i32 z);
 
             void releaseGeometry(Section &section) const;
 
@@ -162,7 +163,11 @@ namespace at {
             u32 frame = 0;
 
             std::vector<Section *> visible;
+            std::vector<Section *> layerVisible[LAYERS];
             std::vector<i32> visibleCoordinates;
+            bool graphDirty = true;
+            float lastClip[16] = {};
+            SetupParameters lastParameters{};
             std::vector<Node> queue;
 
             std::mutex resultsLock;

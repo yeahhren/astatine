@@ -164,7 +164,7 @@ object Native {
     external fun terrainBuild(snapshot: Long)
 
     @JvmStatic
-    external fun terrainUpload(budget: Long): Int
+    external fun terrainUpload(budget: Long, budgetNanos: Long): Int
 
     @JvmStatic
     external fun terrainSort(limit: Int): Int

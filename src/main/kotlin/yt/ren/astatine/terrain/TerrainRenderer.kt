@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger
 object TerrainRenderer {
     private val logger = LogManager.getLogger("Astatine/Terrain")
     private const val UPLOAD_BUDGET = 24L shl 20
+    private const val UPLOAD_NANOS = 2_000_000L
     private const val SCHEDULE_ENTRIES = 256
     private const val TRANSLUCENT_SORTS = 15
 
@@ -179,7 +180,7 @@ object TerrainRenderer {
             if (build.generation == generation) Native.terrainAbort(build.x, build.y, build.z, build.version)
         }
         RenderChunk.updateCounter += built
-        Native.terrainUpload(UPLOAD_BUDGET)
+        Native.terrainUpload(UPLOAD_BUDGET, UPLOAD_NANOS)
     }
 
     @JvmStatic

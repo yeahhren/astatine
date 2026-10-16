@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <cmath>
 #include <new>
 
@@ -102,7 +103,9 @@ namespace at::terrain {
             section = Section{};
         }
         visible.clear();
+        for (auto &list: layerVisible) list.clear();
         visibleCoordinates.clear();
+        graphDirty = true;
         centerX = INT32_MIN;
         centerZ = INT32_MIN;
         std::lock_guard guard(resultsLock);
@@ -132,7 +135,8 @@ namespace at::terrain {
         }
     }
 
-    void Terrain::reset(Section &section, i32 x, i32 y, i32 z) const {
+    void Terrain::reset(Section &section, i32 x, i32 y, i32 z) {
+        graphDirty = true;
         releaseGeometry(section);
         u32 version = section.version + 1;
         section = Section{};
@@ -232,6 +236,20 @@ namespace at::terrain {
         recenter(cameraX, cameraZ);
         computeFrustum();
 
+        float clip[16];
+        std::memcpy(clip, renderer.state.projection.top(), 64);
+        mat4::multiply(clip, renderer.state.modelView.top());
+        bool same = !graphDirty && std::memcmp(clip, lastClip, sizeof(clip)) == 0 &&
+                    parameters.x == lastParameters.x && parameters.y == lastParameters.y &&
+                    parameters.z == lastParameters.z && parameters.eyeHeight == lastParameters.eyeHeight &&
+                    parameters.lookFace == lastParameters.lookFace && parameters.smartCull == lastParameters.smartCull &&
+                    parameters.spectator == lastParameters.spectator &&
+                    parameters.cameraInOpaque == lastParameters.cameraInOpaque;
+        if (same) return;
+        std::memcpy(lastClip, clip, sizeof(clip));
+        lastParameters = parameters;
+        graphDirty = false;
+
         float inverse[16];
         eyeX = cameraX;
         eyeY = cameraY + parameters.eyeHeight;
@@ -299,6 +317,14 @@ namespace at::terrain {
                 queue.push_back({
                     neighbor, static_cast<i8>(direction), static_cast<u8>(node.culling | (1u << direction))
                 });
+            }
+        }
+
+        for (auto &list: layerVisible) list.clear();
+        for (Section *section: visible) {
+            section->drawnFrame = frame;
+            for (u32 layer = 0; layer < LAYERS; layer++) {
+                if (section->layers[layer].vertices > 0) layerVisible[layer].push_back(section);
             }
         }
 
@@ -399,6 +425,8 @@ namespace at::terrain {
         if (!section) return;
         if (section->building && section->buildingVersion == result.version) section->building = false;
         if (result.version < section->builtVersion) return;
+        bool hadLayer[LAYERS];
+        for (u32 index = 0; index < LAYERS; index++) hadLayer[index] = section->layers[index].vertices > 0;
         releaseGeometry(*section);
         VkCommandBuffer setup = renderer.setupCommands();
         for (u32 index = 0; index < LAYERS; index++) {
@@ -433,6 +461,15 @@ namespace at::terrain {
             }
         }
         renderer.markSetupTransfers();
+        if (section->drawnFrame == frame) {
+            for (u32 index = 0; index < LAYERS; index++) {
+                if (!hadLayer[index] && section->layers[index].vertices > 0) layerVisible[index].push_back(section);
+            }
+        }
+        i32 eyeSectionX = floorDiv(floorToInt(eyeX), 16), eyeSectionY = floorDiv(floorToInt(eyeY), 16),
+                eyeSectionZ = floorDiv(floorToInt(eyeZ), 16);
+        bool cameraSection = section->x == eyeSectionX && section->y == eyeSectionY && section->z == eyeSectionZ;
+        if (!section->compiled || section->visibility != result.visibility || cameraSection) graphDirty = true;
         section->builtVersion = result.version;
         section->compiled = true;
         section->visibility = result.visibility;
@@ -441,7 +478,8 @@ namespace at::terrain {
         section->dirty = section->version != section->builtVersion;
     }
 
-    u32 Terrain::upload(u64 budget) {
+    u32 Terrain::upload(u64 budget, u64 budgetNanos) {
+        auto started = std::chrono::steady_clock::now();
         std::vector<std::unique_ptr<MeshResult> > pending;
         {
             std::lock_guard guard(resultsLock);
@@ -451,7 +489,9 @@ namespace at::terrain {
         u32 applied = 0;
         std::size_t index = 0;
         for (; index < pending.size(); index++) {
-            if (spent >= budget) break;
+            if (index > 0 && (spent >= budget || u64(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                  std::chrono::steady_clock::now() - started).count()) >= budgetNanos))
+                break;
             MeshResult &result = *pending[index];
             for (const LayerMesh &layer: result.layers) spent += layer.vertices.size() * sizeof(Vertex);
             apply(result);
@@ -505,13 +545,10 @@ namespace at::terrain {
     }
 
     u32 Terrain::draw(u32 layerIndex) {
-        if (visible.empty()) return 0;
+        const std::vector<Section *> &candidates = layerVisible[layerIndex];
+        if (candidates.empty()) return 0;
         bool translucent = layerIndex == TRANSLUCENT;
-        u32 sectionsWithLayer = 0;
-        for (Section *section: visible) {
-            if (section->layers[layerIndex].vertices > 0) sectionsWithLayer++;
-        }
-        if (sectionsWithLayer == 0) return 0;
+        auto sectionsWithLayer = static_cast<u32>(candidates.size());
         u64 commandBytes = u64(sectionsWithLayer) * BUCKETS * sizeof(VkDrawIndexedIndirectCommand);
         u64 sectionBytes = u64(sectionsWithLayer) * sizeof(SectionDraw);
         if (!renderer.prepare(commandBytes + 64, sectionBytes)) return 0;
@@ -608,8 +645,8 @@ namespace at::terrain {
 
         u32 slot = 0;
         if (translucent) {
-            for (std::size_t i = visible.size(); i-- > 0;) {
-                Section &section = *visible[i];
+            for (std::size_t i = candidates.size(); i-- > 0;) {
+                Section &section = *candidates[i];
                 const SectionLayer &layer = section.layers[layerIndex];
                 if (layer.vertices == 0) continue;
                 if (layer.buffer != runBuffer) {
@@ -623,7 +660,7 @@ namespace at::terrain {
         } else {
             for (u32 buffer = 0; buffer < arena->bufferCount(); buffer++) {
                 runBuffer = buffer;
-                for (Section *section: visible) {
+                for (Section *section: candidates) {
                     const SectionLayer &layer = section->layers[layerIndex];
                     if (layer.vertices == 0 || layer.buffer != buffer) continue;
                     emitSection(*section, slot++);

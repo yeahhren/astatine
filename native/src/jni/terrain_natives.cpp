@@ -109,9 +109,11 @@ AT_EXPORT(void, terrainBuild)(JNIEnv *env, jclass, jlong snapshot) {
 AT_EXPORT(jint, terrainUpload)(JNIEnv *env
                                ,
                                jclass,
-                               jlong budget
+                               jlong budget, jlong budgetNanos
 ) {
-    return jvm::handled(env, [&]() -> jint { return static_cast<jint>(mainTerrain().upload(static_cast<u64>(budget))); });
+    return jvm::handled(env, [&]() -> jint {
+        return static_cast<jint>(mainTerrain().upload(static_cast<u64>(budget), static_cast<u64>(budgetNanos)));
+    });
 }
 
 AT_EXPORT(jint, terrainSort)(JNIEnv *env

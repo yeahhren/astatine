@@ -1,5 +1,6 @@
 package yt.ren.astatine.mixin.terrain;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import net.minecraft.block.Blocks;
@@ -22,6 +23,7 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -57,6 +59,9 @@ public abstract class WorldRendererMixin {
 
 	@Shadow
 	private int renderedEntityCount;
+
+	@Unique
+	private WorldChunk[] astatine$columns;
 
 	/**
 	 * @author Ren
@@ -175,12 +180,34 @@ public abstract class WorldRendererMixin {
 		boolean sleeping = view instanceof LivingEntity && ((LivingEntity) view).isSleeping();
 		int count = TerrainRenderer.visibleCount();
 		long address = TerrainRenderer.visibleAddress();
+		int radius = this.lastViewDistance + 1;
+		int span = radius * 2 + 1;
+		if (this.astatine$columns == null || this.astatine$columns.length != span * span) {
+			this.astatine$columns = new WorldChunk[span * span];
+		} else {
+			Arrays.fill(this.astatine$columns, null);
+		}
+		WorldChunk[] columns = this.astatine$columns;
+		int originX = ((int) Math.floor(d) >> 4) - radius;
+		int originZ = ((int) Math.floor(f) >> 4) - radius;
 		for (int i = 0; i < count; i++) {
 			long at = address + i * 12L;
 			int sectionX = Memory.INSTANCE.getInt(at);
 			int sectionY = Memory.INSTANCE.getInt(at + 4);
 			int sectionZ = Memory.INSTANCE.getInt(at + 8);
-			WorldChunk chunk = this.world.getChunkAt(sectionX, sectionZ);
+			int columnX = sectionX - originX;
+			int columnZ = sectionZ - originZ;
+			WorldChunk chunk;
+			if (columnX >= 0 && columnZ >= 0 && columnX < span && columnZ < span) {
+				int column = columnZ * span + columnX;
+				chunk = columns[column];
+				if (chunk == null) {
+					chunk = this.world.getChunkAt(sectionX, sectionZ);
+					columns[column] = chunk;
+				}
+			} else {
+				chunk = this.world.getChunkAt(sectionX, sectionZ);
+			}
 			TypeInstanceMultiMap<Entity> entities = chunk.getEntities()[sectionY];
 			if (entities.isEmpty()) {
 				continue;
