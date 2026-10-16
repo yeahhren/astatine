@@ -1,0 +1,34 @@
+#pragma once
+
+#include "core/common.h"
+#include "terrain/occlusion.h"
+#include "terrain/tables.h"
+#include "terrain/vertex.h"
+
+#include <memory>
+#include <vector>
+
+namespace at::terrain {
+    struct Snapshot;
+
+    struct LayerMesh {
+        std::vector<Vertex> vertices;
+        u32 bucketQuads[BUCKETS] = {};
+        std::vector<float> centroids;
+    };
+
+    struct MeshResult {
+        i32 x = 0, y = 0, z = 0;
+        u32 version = 0;
+        LayerMesh layers[LAYERS];
+        Visibility visibility = 0;
+        OpaqueMask opaque{};
+        bool empty = true;
+    };
+
+    std::unique_ptr<MeshResult> mesh(const Tables &tables, const Snapshot &snapshot, float cameraX, float cameraY,
+                                     float cameraZ);
+
+    void sortQuads(std::vector<Vertex> &vertices, std::vector<float> &centroids, float cameraX, float cameraY,
+                   float cameraZ);
+} // namespace at::terrain

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "astatine",
+  "version": "${version}",
+  "name": "Astatine",
+  "description": "Vulkan renderer mod for 1.8.9.",
+  "authors": ["Ren"],
+  "license": "All-Rights-Reserved",
+  "environment": "client",
+  "entrypoints": {
+    "preLaunch": ["yt.ren.astatine.Astatine"]
+  },
+  "mixins": ["astatine.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "fabric-language-kotlin": "*",
+    "pylon": ">=0.2.2",
+    "minecraft": "1.8.9",
+    "java": ">=8"
+  }
+}
