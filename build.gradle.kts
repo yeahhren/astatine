@@ -32,7 +32,7 @@ loom {
     runs {
         named("client") {
             programArgs("--username", "Player", "--accessToken", "0")
-            vmArgs("--enable-native-access=ALL-UNNAMED")
+            vmArgs("--enable-native-access=ALL-UNNAMED", "-XX:+UseZGC", "-XX:+UseCompactObjectHeaders")
         }
     }
 }
