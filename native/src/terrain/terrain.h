@@ -6,10 +6,16 @@
 #include "terrain/culling.h"
 #include "terrain/mesher.h"
 #include "terrain/occlusion.h"
+#include "terrain/snapshot.h"
 #include "terrain/tables.h"
+#include "vulkan/staging_pool.h"
 #include "vulkan/memory.h"
 
 #include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <thread>
+#include <unordered_map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -25,7 +31,9 @@ namespace at {
         public:
             static constexpr u64 BUFFER_VERTICES = 4ull << 20;
 
-            explicit VertexArena(Renderer &renderer) : renderer(renderer) {
+            explicit VertexArena(Renderer &renderer, u64 elementSize = sizeof(Vertex), u64 capacity = BUFFER_VERTICES,
+                                 VkBufferUsageFlags usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)
+                : renderer(renderer), elementSize(elementSize), capacity(capacity), usage(usage) {
             }
 
             ~VertexArena();
@@ -43,10 +51,16 @@ namespace at {
         private:
             struct Block {
                 std::unique_ptr<GpuBuffer> buffer;
-                RangeAllocator ranges{BUFFER_VERTICES};
+                RangeAllocator ranges;
+
+                explicit Block(u64 capacity) : ranges(capacity) {
+                }
             };
 
             Renderer &renderer;
+            u64 elementSize;
+            u64 capacity;
+            VkBufferUsageFlags usage;
             std::vector<std::unique_ptr<Block> > buffers;
         };
 
@@ -55,9 +69,16 @@ namespace at {
             u32 first = 0;
             u32 vertices = 0;
             u32 bucketQuads[BUCKETS] = {};
-            std::vector<Vertex> cpu;
-            std::vector<float> centroids;
+            u32 indexBuffer = 0;
+            u32 indexFirst = 0;
+            u32 indexCount = 0;
+            std::shared_ptr<const std::vector<float> > centroids;
             float sortedX = 0, sortedY = 0, sortedZ = 0;
+            SortMode sortMode = SortMode::DISTANCE;
+            std::vector<float> planes[3];
+            u32 signature = 0;
+            u32 sortToken = 0;
+            bool sorting = false;
         };
 
         struct Section {
@@ -111,7 +132,7 @@ namespace at {
 
             u32 draw(u32 layerIndex);
 
-            u32 sortTranslucent(u32 limit) const;
+            u32 sortTranslucent(u32 limit);
 
             std::string debug() const;
 
@@ -125,6 +146,10 @@ namespace at {
             void releaseSnapshot(Snapshot *snapshot);
 
             void build(Snapshot *snapshot);
+
+            u32 attachClones(Snapshot *snapshot, i32 x, i32 y, i32 z, u32 present);
+
+            void commitClones(Snapshot *snapshot, u32 copied, u32 sky);
 
         private:
             Section *at(i32 x, i32 y, i32 z);
@@ -153,6 +178,44 @@ namespace at {
 
             Renderer &renderer;
             std::unique_ptr<VertexArena> arena;
+            std::unique_ptr<StagingPool> staging;
+            std::unique_ptr<VertexArena> indexArena;
+
+            struct SortJob {
+                i32 x, y, z;
+                u32 token;
+                std::shared_ptr<const std::vector<float> > centroids;
+                float cameraX, cameraY, cameraZ;
+            };
+
+            struct SortResult {
+                i32 x, y, z;
+                u32 token;
+                u32 indexCount;
+                StagedData indices;
+            };
+
+            void sortWork();
+
+            void applySorts();
+
+            std::mutex sortLock;
+            std::condition_variable sortWake;
+            std::deque<SortJob> sortJobs;
+            std::vector<SortResult> sortResults;
+            bool sortStopping = false;
+            u32 sortGeneration = 0;
+            std::thread sortThread;
+
+            struct CloneEntry {
+                std::shared_ptr<const SectionClone> data;
+                u64 serial;
+            };
+
+            static constexpr std::size_t MAX_CLONES = 4096;
+            std::unordered_map<u64, CloneEntry> clones;
+            std::deque<std::pair<u64, u64> > cloneOrder;
+            u64 cloneSerial = 0;
             std::shared_ptr<const Tables> tables;
             mutable std::mutex tablesLock;
 

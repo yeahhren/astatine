@@ -26,6 +26,20 @@ namespace at {
         VkSemaphoreCreateInfo semaphoreInfo{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
         check(vkCreateSemaphore(device.handle, &semaphoreInfo, nullptr, &imageAvailable), "vkCreateSemaphore");
 
+        if (device.transferQueue) {
+            VkCommandPoolCreateInfo transferPoolInfo{.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+            transferPoolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+            transferPoolInfo.queueFamilyIndex = device.transferFamily;
+            check(vkCreateCommandPool(device.handle, &transferPoolInfo, nullptr, &transferPool), "vkCreateCommandPool");
+            VkCommandBufferAllocateInfo transferInfo{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+            transferInfo.commandPool = transferPool;
+            transferInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            transferInfo.commandBufferCount = 1;
+            check(vkAllocateCommandBuffers(device.handle, &transferInfo, &transfer), "vkAllocateCommandBuffers");
+            VkSemaphoreCreateInfo doneInfo{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+            check(vkCreateSemaphore(device.handle, &doneInfo, nullptr, &transferDone), "vkCreateSemaphore");
+        }
+
         if (device.timestampMask) {
             VkQueryPoolCreateInfo queryInfo{.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
             queryInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
@@ -37,6 +51,8 @@ namespace at {
     FrameResources::~FrameResources() {
         runReleases();
         if (timestamps) vkDestroyQueryPool(device.handle, timestamps, nullptr);
+        if (transferDone) vkDestroySemaphore(device.handle, transferDone, nullptr);
+        if (transferPool) vkDestroyCommandPool(device.handle, transferPool, nullptr);
         vkDestroySemaphore(device.handle, imageAvailable, nullptr);
         vkDestroyFence(device.handle, fence, nullptr);
         vkDestroyCommandPool(device.handle, pool, nullptr);
@@ -59,6 +75,7 @@ namespace at {
     void FrameResources::reset() const {
         check(vkResetFences(device.handle, 1, &fence), "vkResetFences");
         check(vkResetCommandPool(device.handle, pool, 0), "vkResetCommandPool");
+        if (transferPool) check(vkResetCommandPool(device.handle, transferPool, 0), "vkResetCommandPool");
     }
 
     void FrameResources::runReleases() {

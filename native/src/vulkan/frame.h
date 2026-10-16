@@ -30,6 +30,10 @@ namespace at {
         VkSemaphore imageAvailable = VK_NULL_HANDLE;
         VkQueryPool timestamps = VK_NULL_HANDLE;
         bool timed = false;
+        VkCommandPool transferPool = VK_NULL_HANDLE;
+        VkCommandBuffer transfer = VK_NULL_HANDLE;
+        VkSemaphore transferDone = VK_NULL_HANDLE;
+        bool transferRecording = false;
 
     private:
         void runReleases();

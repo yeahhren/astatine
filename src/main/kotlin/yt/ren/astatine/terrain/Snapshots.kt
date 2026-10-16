@@ -3,6 +3,7 @@ package yt.ren.astatine.terrain
 import net.minecraft.block.entity.BlockEntity
 import net.minecraft.client.world.ClientWorld
 import net.minecraft.util.math.BlockPos
+import yt.ren.astatine.Native
 import yt.ren.astatine.memory.Memory
 
 object Snapshots {
@@ -52,9 +53,6 @@ object Snapshots {
                 val column = (dz + 1) * 3 + dx + 1
                 val chunk = world.getChunkAt(x + dx, z + dz)
                 if (chunk.isEmpty) continue
-                loaded = loaded or (1 shl column)
-                Memory.copy(chunk.heightMap, 0, snapshot + HEIGHT_MAPS + column * 1024L, 256)
-                biomes[column] = chunk.biomes.copyOf()
                 val sections = chunk.sections
                 for (dy in -1..1) {
                     val sectionY = y + dy
@@ -62,13 +60,30 @@ object Snapshots {
                     val storage = sections[sectionY] ?: continue
                     val index = (dy + 1) * 9 + column
                     present = present or (1 shl index)
+                    if (storage.skyLightStorage != null) skyMask = skyMask or (1 shl index)
+                }
+            }
+        }
+        val cached = Native.terrainSnapshotClones(snapshot, x, y, z, present)
+        for (dz in -1..1) {
+            for (dx in -1..1) {
+                val column = (dz + 1) * 3 + dx + 1
+                val chunk = world.getChunkAt(x + dx, z + dz)
+                if (chunk.isEmpty) continue
+                loaded = loaded or (1 shl column)
+                Memory.copy(chunk.heightMap, 0, snapshot + HEIGHT_MAPS + column * 1024L, 256)
+                biomes[column] = chunk.biomes.copyOf()
+                val sections = chunk.sections
+                for (dy in -1..1) {
+                    val sectionY = y + dy
+                    if (sectionY !in 0..15) continue
+                    val index = (dy + 1) * 9 + column
+                    if (cached and (1 shl index) != 0) continue
+                    val storage = sections[sectionY] ?: continue
                     Memory.copy(storage.blockStates, snapshot + STATES + index * 8192L)
                     Memory.copy(storage.blockLightStorage.data, snapshot + BLOCK_LIGHT + index * 2048L)
                     val skyLight = storage.skyLightStorage
-                    if (skyLight != null) {
-                        Memory.copy(skyLight.data, snapshot + SKY_LIGHT + index * 2048L)
-                        skyMask = skyMask or (1 shl index)
-                    }
+                    if (skyLight != null) Memory.copy(skyLight.data, snapshot + SKY_LIGHT + index * 2048L)
                 }
                 for ((pos, blockEntity) in chunk.blockEntities) {
                     val ly = pos.y - minY
@@ -77,6 +92,7 @@ object Snapshots {
                 }
             }
         }
+        Native.terrainSnapshotCommit(snapshot, present and cached.inv(), skyMask)
         Memory.putInt(snapshot + PRESENT_MASK, present)
         Memory.putInt(snapshot + SKY_MASK, skyMask)
         Memory.putInt(snapshot + LOADED_MASK, loaded)

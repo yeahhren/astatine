@@ -98,6 +98,24 @@ AT_EXPORT(jlong, terrainSnapshot)(JNIEnv *env
     return jvm::handled(env, [&]() -> jlong { return handle(Renderer::get().terrain->acquireSnapshot()); });
 }
 
+AT_EXPORT(jint, terrainSnapshotClones)(JNIEnv *env, jclass, jlong snapshot, jint x, jint y, jint z, jint present) {
+    return jvm::handled(env, [&]() -> jint {
+        return static_cast<jint>(Renderer::get().terrain->attachClones(pointer<Snapshot>(snapshot), x, y, z,
+                                                                       static_cast<u32>(present)));
+    });
+}
+
+AT_EXPORT(void, terrainSnapshotCommit)(JNIEnv *env, jclass, jlong snapshot, jint copied, jint sky) {
+    jvm::handled(env, [&] {
+        Renderer::get().terrain->commitClones(pointer<Snapshot>(snapshot), static_cast<u32>(copied),
+                                              static_cast<u32>(sky));
+    });
+}
+
+AT_EXPORT(void, terrainSnapshotCopyClones)(JNIEnv *env, jclass, jlong snapshot) {
+    jvm::handled(env, [&] { pointer<Snapshot>(snapshot)->copyClones(); });
+}
+
 AT_EXPORT(void, terrainRelease)(JNIEnv *env, jclass, jlong snapshot) {
     jvm::handled(env, [&] { Renderer::get().terrain->releaseSnapshot(pointer<Snapshot>(snapshot)); });
 }

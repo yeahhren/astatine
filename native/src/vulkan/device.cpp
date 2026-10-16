@@ -177,10 +177,28 @@ namespace at {
         timeline.timelineSemaphore = interop;
 
         float priority = 1.0f;
-        VkDeviceQueueCreateInfo queueInfo{.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-        queueInfo.queueFamilyIndex = queueFamily;
-        queueInfo.queueCount = 1;
-        queueInfo.pQueuePriorities = &priority;
+        {
+            uint32_t familyCount = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(physical, &familyCount, nullptr);
+            std::vector<VkQueueFamilyProperties> families(familyCount);
+            vkGetPhysicalDeviceQueueFamilyProperties(physical, &familyCount, families.data());
+            int best = -1;
+            for (uint32_t i = 0; i < familyCount; i++) {
+                VkQueueFlags flags = families[i].queueFlags;
+                if (i == queueFamily || !(flags & VK_QUEUE_TRANSFER_BIT) || (flags & VK_QUEUE_GRAPHICS_BIT)) continue;
+                if (best < 0 || !(flags & VK_QUEUE_COMPUTE_BIT)) best = static_cast<int>(i);
+            }
+            if (best >= 0) transferFamily = static_cast<u32>(best);
+        }
+        VkDeviceQueueCreateInfo queueInfos[2]{};
+        queueInfos[0].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueInfos[0].queueFamilyIndex = queueFamily;
+        queueInfos[0].queueCount = 1;
+        queueInfos[0].pQueuePriorities = &priority;
+        queueInfos[1].sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueInfos[1].queueFamilyIndex = transferFamily;
+        queueInfos[1].queueCount = 1;
+        queueInfos[1].pQueuePriorities = &priority;
 
         VkPhysicalDeviceDescriptorIndexingFeaturesEXT enabled{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT
@@ -191,8 +209,8 @@ namespace at {
         enabled.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
 
         VkDeviceCreateInfo info{.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-        info.queueCreateInfoCount = 1;
-        info.pQueueCreateInfos = &queueInfo;
+        info.queueCreateInfoCount = transferFamily != ~0u ? 2 : 1;
+        info.pQueueCreateInfos = queueInfos;
         info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
         info.ppEnabledExtensionNames = extensions.data();
         info.pEnabledFeatures = &features;
@@ -209,6 +227,7 @@ namespace at {
         check(vkCreateDevice(physical, &info, nullptr, &handle), "vkCreateDevice");
         loadDevice(handle);
         vkGetDeviceQueue(handle, queueFamily, 0, &queue);
+        if (transferFamily != ~0u) vkGetDeviceQueue(handle, transferFamily, 0, &transferQueue);
 
         for (VkFormat format: {
                  VK_FORMAT_X8_D24_UNORM_PACK32, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT, VK_FORMAT_D16_UNORM

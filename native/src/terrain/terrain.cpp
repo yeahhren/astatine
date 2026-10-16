@@ -2,6 +2,7 @@
 
 #include "core/error.h"
 #include "core/log.h"
+#include "core/threads.h"
 #include "render/blocks.h"
 #include "render/renderer.h"
 #include "terrain/snapshot.h"
@@ -30,6 +31,11 @@ namespace at::terrain {
         return static_cast<i32>(std::floor(value));
     }
 
+    static AT_INLINE u64 cloneKey(i32 x, i32 y, i32 z) {
+        return (static_cast<u64>(static_cast<u32>(x) & 0x3FFFFFu) << 26) |
+               (static_cast<u64>(static_cast<u32>(z) & 0x3FFFFFu) << 4) | static_cast<u64>(y & 15);
+    }
+
     VertexArena::~VertexArena() = default;
 
     bool VertexArena::allocate(u32 count, u32 &buffer, u32 &first) {
@@ -40,14 +46,12 @@ namespace at::terrain {
                 return true;
             }
         }
-        if (count > BUFFER_VERTICES) return false;
+        if (count > capacity) return false;
         Context &context = renderer.context();
-        auto block = std::make_unique<Block>();
-        block->buffer = std::make_unique<GpuBuffer>(*context.device, *context.allocator,
-                                                    BUFFER_VERTICES * sizeof(Vertex),
-                                                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
-                                                    VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        auto block = std::make_unique<Block>(capacity);
+        block->buffer = std::make_unique<GpuBuffer>(*context.device, *context.allocator, capacity * elementSize,
+                                                    usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, true);
         u64 offset = block->ranges.allocate(count, 1);
         buffers.push_back(std::move(block));
         buffer = static_cast<u32>(buffers.size() - 1);
@@ -69,10 +73,68 @@ namespace at::terrain {
         return used;
     }
 
-    Terrain::Terrain(Renderer &renderer) : renderer(renderer), arena(std::make_unique<VertexArena>(renderer)) {
+    Terrain::Terrain(Renderer &renderer)
+        : renderer(renderer), arena(std::make_unique<VertexArena>(renderer)),
+          staging(std::make_unique<StagingPool>(*renderer.context().device)),
+          indexArena(std::make_unique<VertexArena>(renderer, sizeof(u32), 8ull << 20, VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) {
+        sortThread = std::thread([this] { sortWork(); });
+        lowerPriority(sortThread);
+    }
+
+    void Terrain::sortWork() {
+        thread_local std::vector<u32> order;
+        thread_local std::vector<float> distances;
+        while (true) {
+            SortJob job;
+            {
+                std::unique_lock guard(sortLock);
+                sortWake.wait(guard, [this] { return sortStopping || !sortJobs.empty(); });
+                if (sortStopping) return;
+                job = std::move(sortJobs.front());
+                sortJobs.pop_front();
+            }
+            const std::vector<float> &centroids = *job.centroids;
+            std::size_t quads = centroids.size() / 3;
+            order.resize(quads);
+            distances.resize(quads);
+            for (std::size_t i = 0; i < quads; i++) {
+                float dx = centroids[i * 3] - job.cameraX;
+                float dy = centroids[i * 3 + 1] - job.cameraY;
+                float dz = centroids[i * 3 + 2] - job.cameraZ;
+                distances[i] = dx * dx + dy * dy + dz * dz;
+                order[i] = static_cast<u32>(i);
+            }
+            std::stable_sort(order.begin(), order.end(), [](u32 a, u32 b) { return distances[a] > distances[b]; });
+            SortResult result{job.x, job.y, job.z, job.token, static_cast<u32>(quads * 6), {}};
+            StagingSpan span = staging->allocate(u64(quads) * 6 * sizeof(u32));
+            if (span.valid()) {
+                auto *indices = reinterpret_cast<u32 *>(span.address);
+                for (std::size_t i = 0; i < quads; i++) {
+                    u32 base = order[i] * 4;
+                    u32 *out = indices + i * 6;
+                    out[0] = base;
+                    out[1] = base + 1;
+                    out[2] = base + 2;
+                    out[3] = base;
+                    out[4] = base + 2;
+                    out[5] = base + 3;
+                }
+                result.indices = StagedData(staging.get(), span);
+            }
+            std::lock_guard guard(sortLock);
+            sortResults.push_back(std::move(result));
+        }
     }
 
     Terrain::~Terrain() {
+        {
+            std::lock_guard guard(sortLock);
+            sortStopping = true;
+            sortJobs.clear();
+        }
+        sortWake.notify_all();
+        if (sortThread.joinable()) sortThread.join();
+        sortResults.clear();
         std::lock_guard guard(snapshotsLock);
         for (Snapshot *snapshot: snapshots) {
             snapshot->~Snapshot();
@@ -114,6 +176,8 @@ namespace at::terrain {
         visibleCoordinates.clear();
         centerX = INT32_MIN;
         centerZ = INT32_MIN;
+        clones.clear();
+        cloneOrder.clear();
         std::lock_guard guard(resultsLock);
         results.clear();
     }
@@ -135,6 +199,11 @@ namespace at::terrain {
             if (layer.vertices > 0) {
                 VertexArena *target = arena.get();
                 u32 buffer = layer.buffer, first = layer.first, count = layer.vertices;
+                renderer.defer([target, buffer, first, count] { target->release(buffer, first, count); });
+            }
+            if (layer.indexCount > 0) {
+                VertexArena *target = indexArena.get();
+                u32 buffer = layer.indexBuffer, first = layer.indexFirst, count = layer.indexCount;
                 renderer.defer([target, buffer, first, count] { target->release(buffer, first, count); });
             }
             layer = SectionLayer{};
@@ -191,6 +260,7 @@ namespace at::terrain {
         for (i32 x = fromX; x <= toX; x++) {
             for (i32 z = fromZ; z <= toZ; z++) {
                 for (i32 y = fromY; y <= toY; y++) {
+                    clones.erase(cloneKey(x, y, z));
                     Section *section = at(x, y, z);
                     if (!section) continue;
                     section->version++;
@@ -416,7 +486,58 @@ namespace at::terrain {
         return new(memory) Snapshot();
     }
 
+    u32 Terrain::attachClones(Snapshot *snapshot, i32 x, i32 y, i32 z, u32 present) {
+        u32 attached = 0;
+        for (i32 dy = -1; dy <= 1; dy++) {
+            for (i32 dz = -1; dz <= 1; dz++) {
+                for (i32 dx = -1; dx <= 1; dx++) {
+                    u32 slot = static_cast<u32>((dy + 1) * 9 + (dz + 1) * 3 + dx + 1);
+                    if (!((present >> slot) & 1)) continue;
+                    auto found = clones.find(cloneKey(x + dx, y + dy, z + dz));
+                    if (found == clones.end()) continue;
+                    snapshot->clones[slot] = found->second.data;
+                    attached |= 1u << slot;
+                }
+            }
+        }
+        return attached;
+    }
+
+    void Terrain::commitClones(Snapshot *snapshot, u32 copied, u32 sky) {
+        for (u32 slot = 0; slot < Snapshot::SECTIONS; slot++) {
+            if (!((copied >> slot) & 1)) continue;
+            i32 dx = static_cast<i32>(slot % 3) - 1, dz = static_cast<i32>((slot / 3) % 3) - 1,
+                    dy = static_cast<i32>(slot / 9) - 1;
+            i32 sectionY = snapshot->sectionY + dy;
+            if (sectionY < 0 || sectionY > 15) continue;
+            auto clone = std::make_shared<SectionClone>();
+            std::copy_n(snapshot->states[slot], 4096, clone->states);
+            std::copy_n(snapshot->blockLight[slot], 2048, clone->blockLight);
+            clone->sky = (sky >> slot) & 1;
+            if (clone->sky) std::copy_n(snapshot->skyLight[slot], 2048, clone->skyLight);
+            u64 key = cloneKey(snapshot->sectionX + dx, sectionY, snapshot->sectionZ + dz);
+            u64 serial = ++cloneSerial;
+            clones[key] = CloneEntry{std::move(clone), serial};
+            cloneOrder.emplace_back(key, serial);
+        }
+        while (clones.size() > MAX_CLONES && !cloneOrder.empty()) {
+            auto [key, serial] = cloneOrder.front();
+            cloneOrder.pop_front();
+            auto found = clones.find(key);
+            if (found != clones.end() && found->second.serial == serial) clones.erase(found);
+        }
+        if (cloneOrder.size() > MAX_CLONES * 4) {
+            std::deque<std::pair<u64, u64> > live;
+            for (const auto &entry: cloneOrder) {
+                auto found = clones.find(entry.first);
+                if (found != clones.end() && found->second.serial == entry.second) live.push_back(entry);
+            }
+            cloneOrder.swap(live);
+        }
+    }
+
     void Terrain::releaseSnapshot(Snapshot *snapshot) {
+        snapshot->dropClones();
         std::lock_guard guard(snapshotsLock);
         snapshots.push_back(snapshot);
     }
@@ -443,6 +564,37 @@ namespace at::terrain {
                     for (Vertex &vertex: layer.vertices) setSlot(vertex, slot);
                 }
             }
+            for (u32 index = 0; index < LAYERS; index++) {
+                LayerMesh &layer = result->layers[index];
+                layer.count = static_cast<u32>(layer.vertices.size());
+                if (layer.count == 0) continue;
+                u64 bytes = u64(layer.count) * sizeof(Vertex);
+                StagingSpan span = staging->allocate(bytes);
+                if (!span.valid()) continue;
+                std::memcpy(span.address, layer.vertices.data(), bytes);
+                layer.staged = StagedData(staging.get(), span);
+                layer.vertices.clear();
+                layer.vertices.shrink_to_fit();
+                if (index == TRANSLUCENT) {
+                    u32 quads = layer.count / 4;
+                    layer.indexCount = quads * 6;
+                    StagingSpan indexSpan = staging->allocate(u64(layer.indexCount) * sizeof(u32));
+                    if (indexSpan.valid()) {
+                        auto *indices = reinterpret_cast<u32 *>(indexSpan.address);
+                        for (u32 quad = 0; quad < quads; quad++) {
+                            u32 base = quad * 4;
+                            u32 *out = indices + quad * 6;
+                            out[0] = base;
+                            out[1] = base + 1;
+                            out[2] = base + 2;
+                            out[3] = base;
+                            out[4] = base + 2;
+                            out[5] = base + 3;
+                        }
+                        layer.indices = StagedData(staging.get(), indexSpan);
+                    }
+                }
+            }
         } else {
             result = std::make_unique<MeshResult>();
             result->x = snapshot->sectionX;
@@ -463,39 +615,85 @@ namespace at::terrain {
         bool hadLayer[LAYERS];
         for (u32 index = 0; index < LAYERS; index++) hadLayer[index] = section->layers[index].vertices > 0;
         releaseGeometry(*section);
-        VkCommandBuffer setup = renderer.setupCommands();
+        VkCommandBuffer transfer = renderer.transferCommands();
         for (u32 index = 0; index < LAYERS; index++) {
             LayerMesh &mesh = result.layers[index];
-            if (mesh.vertices.empty()) continue;
+            u32 count = mesh.count ? mesh.count : static_cast<u32>(mesh.vertices.size());
+            if (count == 0) continue;
             SectionLayer &layer = section->layers[index];
-            u32 count = static_cast<u32>(mesh.vertices.size());
             u32 buffer, first;
             if (!arena->allocate(count, buffer, first)) {
                 log::warn("Section %d %d %d does not fit in a terrain buffer", result.x, result.y, result.z);
                 continue;
             }
             u64 bytes = static_cast<u64>(count) * sizeof(Vertex);
-            VkBuffer staging;
+            VkBuffer source;
             u64 offset;
-            u8 *address = renderer.stage(bytes, staging, offset);
-            std::memcpy(address, mesh.vertices.data(), bytes);
+            if (mesh.staged.valid()) {
+                StagingSpan span = mesh.staged.release();
+                source = staging->handle(span.block);
+                offset = span.offset;
+                StagingPool *pool = staging.get();
+                renderer.defer([pool, span] { pool->release(span); });
+            } else {
+                u8 *address = renderer.stage(bytes, source, offset);
+                std::memcpy(address, mesh.vertices.data(), bytes);
+                transfer = renderer.transferCommands();
+            }
             VkBufferCopy region{.srcOffset = offset, .dstOffset = static_cast<u64>(first) * sizeof(Vertex), .size = bytes};
-            vkCmdCopyBuffer(setup, staging, arena->handle(buffer), 1, &region);
+            vkCmdCopyBuffer(transfer, source, arena->handle(buffer), 1, &region);
             uploadedBytes += bytes;
             layer.buffer = buffer;
             layer.first = first;
             layer.vertices = count;
             std::memcpy(layer.bucketQuads, mesh.bucketQuads, sizeof(layer.bucketQuads));
             if (index == TRANSLUCENT) {
-                layer.cpu = std::move(mesh.vertices);
-                layer.centroids = std::move(mesh.centroids);
+                u32 indexCount = (count / 4) * 6;
+                u32 indexBuffer, indexFirst;
+                if (indexArena->allocate(indexCount, indexBuffer, indexFirst)) {
+                    u64 indexBytes = u64(indexCount) * sizeof(u32);
+                    VkBuffer indexSource;
+                    u64 indexOffset;
+                    if (mesh.indices.valid()) {
+                        StagingSpan span = mesh.indices.release();
+                        indexSource = staging->handle(span.block);
+                        indexOffset = span.offset;
+                        StagingPool *pool = staging.get();
+                        renderer.defer([pool, span] { pool->release(span); });
+                    } else {
+                        auto *indices = reinterpret_cast<u32 *>(renderer.stage(indexBytes, indexSource, indexOffset));
+                        for (u32 quad = 0; quad < count / 4; quad++) {
+                            u32 base = quad * 4;
+                            u32 *out = indices + quad * 6;
+                            out[0] = base;
+                            out[1] = base + 1;
+                            out[2] = base + 2;
+                            out[3] = base;
+                            out[4] = base + 2;
+                            out[5] = base + 3;
+                        }
+                        transfer = renderer.transferCommands();
+                    }
+                    VkBufferCopy indexRegion{.srcOffset = indexOffset, .dstOffset = u64(indexFirst) * sizeof(u32),
+                                             .size = indexBytes};
+                    vkCmdCopyBuffer(transfer, indexSource, indexArena->handle(indexBuffer), 1, &indexRegion);
+                    layer.indexBuffer = indexBuffer;
+                    layer.indexFirst = indexFirst;
+                    layer.indexCount = indexCount;
+                }
+                layer.centroids = std::make_shared<const std::vector<float> >(std::move(mesh.centroids));
+                layer.sortMode = mesh.sortMode;
+                for (int axis = 0; axis < 3; axis++) layer.planes[axis] = std::move(mesh.planes[axis]);
+                layer.sortToken = ++sortGeneration;
                 std::lock_guard guard(cameraLock);
                 layer.sortedX = buildCamera[0];
                 layer.sortedY = buildCamera[1];
                 layer.sortedZ = buildCamera[2];
+                layer.signature = planeSignature(layer.planes, buildCamera[0] - static_cast<float>(section->x * 16),
+                                                 buildCamera[1] - static_cast<float>(section->y * 16),
+                                                 buildCamera[2] - static_cast<float>(section->z * 16));
             }
         }
-        renderer.markSetupTransfers();
         if (section->drawnFrame == frame) {
             for (u32 index = 0; index < LAYERS; index++) {
                 if (!hadLayer[index] && section->layers[index].vertices > 0) layerVisible[index].push_back(section);
@@ -546,7 +744,7 @@ namespace at::terrain {
                                   std::chrono::steady_clock::now() - started).count()) >= budgetNanos))
                 break;
             MeshResult &result = *pending[index];
-            for (const LayerMesh &layer: result.layers) spent += layer.vertices.size() * sizeof(Vertex);
+            for (const LayerMesh &layer: result.layers) spent += u64(layer.count) * sizeof(Vertex);
             apply(result);
             applied++;
         }
@@ -559,42 +757,73 @@ namespace at::terrain {
         return applied;
     }
 
-    u32 Terrain::sortTranslucent(u32 limit) const {
-        u32 sorted = 0;
-        VkCommandBuffer setup = VK_NULL_HANDLE;
-        for (Section *section: visible) {
-            if (sorted >= limit) break;
+    void Terrain::applySorts() {
+        std::vector<SortResult> finished;
+        {
+            std::lock_guard guard(sortLock);
+            finished.swap(sortResults);
+        }
+        for (SortResult &result: finished) {
+            Section *section = at(result.x, result.y, result.z);
+            if (!section) continue;
             SectionLayer &layer = section->layers[TRANSLUCENT];
-            if (layer.vertices == 0 || layer.cpu.empty()) continue;
-            auto x = static_cast<float>(eyeX), y = static_cast<float>(eyeY), z = static_cast<float>(eyeZ);
-            float dy = y - layer.sortedY, dz = z - layer.sortedZ;
-            if (float dx = x - layer.sortedX; dx * dx + dy * dy + dz * dz <= 1.0f) continue;
-            sortQuads(layer.cpu, layer.centroids, x - static_cast<float>(section->x * 16),
-                      y - static_cast<float>(section->y * 16),
-                      z - static_cast<float>(section->z * 16));
+            if (layer.sortToken != result.token) continue;
+            layer.sorting = false;
+            if (!result.indices.valid() || layer.indexCount != result.indexCount) continue;
+            u32 buffer, first;
+            if (!indexArena->allocate(result.indexCount, buffer, first)) continue;
+            StagingSpan span = result.indices.release();
+            VkCommandBuffer transfer = renderer.transferCommands();
+            VkBufferCopy region{.srcOffset = span.offset, .dstOffset = u64(first) * sizeof(u32),
+                                .size = u64(result.indexCount) * sizeof(u32)};
+            vkCmdCopyBuffer(transfer, staging->handle(span.block), indexArena->handle(buffer), 1, &region);
+            StagingPool *pool = staging.get();
+            VertexArena *target = indexArena.get();
+            u32 oldBuffer = layer.indexBuffer, oldFirst = layer.indexFirst, count = layer.indexCount;
+            renderer.defer([pool, span, target, oldBuffer, oldFirst, count] {
+                pool->release(span);
+                target->release(oldBuffer, oldFirst, count);
+            });
+            layer.indexBuffer = buffer;
+            layer.indexFirst = first;
+        }
+    }
+
+    u32 Terrain::sortTranslucent(u32 limit) {
+        applySorts();
+        u32 queued = 0;
+        auto x = static_cast<float>(eyeX), y = static_cast<float>(eyeY), z = static_cast<float>(eyeZ);
+        std::vector<SortJob> jobs;
+        for (Section *section: visible) {
+            if (queued >= limit) break;
+            SectionLayer &layer = section->layers[TRANSLUCENT];
+            if (layer.indexCount == 0 || layer.sorting || !layer.centroids || layer.sortMode == SortMode::NONE) continue;
+            float localX = x - static_cast<float>(section->x * 16);
+            float localY = y - static_cast<float>(section->y * 16);
+            float localZ = z - static_cast<float>(section->z * 16);
+            if (layer.sortMode == SortMode::PLANES) {
+                u32 signature = planeSignature(layer.planes, localX, localY, localZ);
+                if (signature == layer.signature) continue;
+                layer.signature = signature;
+            } else {
+                float dx = x - layer.sortedX, dy = y - layer.sortedY, dz = z - layer.sortedZ;
+                if (dx * dx + dy * dy + dz * dz <= 1.0f) continue;
+            }
             layer.sortedX = x;
             layer.sortedY = y;
             layer.sortedZ = z;
-            u32 count = layer.vertices;
-            u32 buffer, first;
-            if (!arena->allocate(count, buffer, first)) continue;
-            VertexArena *target = arena.get();
-            u32 oldBuffer = layer.buffer, oldFirst = layer.first;
-            renderer.defer([target, oldBuffer, oldFirst, count] { target->release(oldBuffer, oldFirst, count); });
-            u64 bytes = static_cast<u64>(count) * sizeof(Vertex);
-            VkBuffer staging;
-            u64 offset;
-            u8 *address = renderer.stage(bytes, staging, offset);
-            std::memcpy(address, layer.cpu.data(), bytes);
-            if (!setup) setup = renderer.setupCommands();
-            VkBufferCopy region{.srcOffset = offset, .dstOffset = static_cast<u64>(first) * sizeof(Vertex), .size = bytes};
-            vkCmdCopyBuffer(setup, staging, arena->handle(buffer), 1, &region);
-            layer.buffer = buffer;
-            layer.first = first;
-            sorted++;
+            layer.sorting = true;
+            jobs.push_back({section->x, section->y, section->z, layer.sortToken, layer.centroids, localX, localY, localZ});
+            queued++;
         }
-        if (sorted > 0) renderer.markSetupTransfers();
-        return sorted;
+        if (!jobs.empty()) {
+            {
+                std::lock_guard guard(sortLock);
+                for (SortJob &job: jobs) sortJobs.push_back(std::move(job));
+            }
+            sortWake.notify_one();
+        }
+        return queued;
     }
 
     u32 Terrain::draw(u32 layerIndex) {
@@ -672,7 +901,52 @@ namespace at::terrain {
         };
 
         if (translucent) {
-            for (std::size_t i = list.size(); i-- > 0;) addSection(*list[i]);
+            const Device &translucentDevice = *renderer.context().device;
+            VkCommandBuffer translucentCommands = renderer.commands();
+            u32 count = 0, start = 0;
+            u32 vertexBuffer = ~0u, indexBuffer = ~0u;
+            auto flush = [&] {
+                u32 run = count - start;
+                if (run == 0) return;
+                renderer.setVertexBuffers(arena->handle(vertexBuffer), 0, VK_NULL_HANDLE, 0);
+                renderer.bindIndexBuffer(indexArena->handle(indexBuffer));
+                if (translucentDevice.multiDrawIndirect) {
+                    for (u32 first = 0; first < run;) {
+                        u32 batch = std::min(run - first, translucentDevice.maxDrawIndirectCount);
+                        vkCmdDrawIndexedIndirect(translucentCommands, data.handle(),
+                                                 commandOffset + u64(start + first) * sizeof(VkDrawIndexedIndirectCommand),
+                                                 batch, sizeof(VkDrawIndexedIndirectCommand));
+                        first += batch;
+                    }
+                } else {
+                    for (u32 i = start; i < count; i++) {
+                        const VkDrawIndexedIndirectCommand &command = commands[i];
+                        vkCmdDrawIndexed(translucentCommands, command.indexCount, 1, command.firstIndex,
+                                         command.vertexOffset, command.firstInstance);
+                    }
+                }
+                start = count;
+            };
+            for (std::size_t i = list.size(); i-- > 0;) {
+                Section &section = *list[i];
+                const SectionLayer &layer = section.layers[layerIndex];
+                if (layer.vertices == 0 || layer.indexCount == 0 || count >= maxCommands) continue;
+                SectionDraw &entry = table[slotIndex(section)];
+                entry.offset[0] = static_cast<float>(section.x * 16 - cameraX);
+                entry.offset[1] = static_cast<float>(section.y * 16 - cameraY);
+                entry.offset[2] = static_cast<float>(section.z * 16 - cameraZ);
+                entry.record = record;
+                if (layer.buffer != vertexBuffer || layer.indexBuffer != indexBuffer) {
+                    flush();
+                    vertexBuffer = layer.buffer;
+                    indexBuffer = layer.indexBuffer;
+                }
+                commands[count++] = {layer.indexCount, 1, layer.indexFirst, static_cast<i32>(layer.first), tableBase};
+                drawn++;
+            }
+            flush();
+            drawnLastFrame = drawn;
+            return drawn;
         } else {
             for (Section *section: list) addSection(*section);
             std::ranges::sort(drawRanges, [](const DrawRange &a, const DrawRange &b) {

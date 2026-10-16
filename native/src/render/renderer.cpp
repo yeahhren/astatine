@@ -528,6 +528,21 @@ namespace at {
         return setup;
     }
 
+    VkCommandBuffer Renderer::transferCommands() {
+        ensureRecording();
+        if (!frame->transfer) {
+            markSetupTransfers();
+            return setup;
+        }
+        if (!frame->transferRecording) {
+            VkCommandBufferBeginInfo info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+            info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            check(vkBeginCommandBuffer(frame->transfer, &info), "vkBeginCommandBuffer");
+            frame->transferRecording = true;
+        }
+        return frame->transfer;
+    }
+
     void Renderer::beginRecording() {
         frame = frames[frameIndex].get();
         frame->await();
@@ -565,9 +580,22 @@ namespace at {
         }
     }
 
-    void Renderer::submit(const SubmitSync &sync) {
+    void Renderer::submit(const SubmitSync &submitted) {
         endPass();
         finishSetup();
+        SubmitSync sync = submitted;
+        if (frame->transferRecording) {
+            check(vkEndCommandBuffer(frame->transfer), "vkEndCommandBuffer");
+            VkSubmitInfo transferInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+            transferInfo.commandBufferCount = 1;
+            transferInfo.pCommandBuffers = &frame->transfer;
+            transferInfo.signalSemaphoreCount = 1;
+            transferInfo.pSignalSemaphores = &frame->transferDone;
+            check(vkQueueSubmit(contextValue->device->transferQueue, 1, &transferInfo, VK_NULL_HANDLE),
+                  "vkQueueSubmit");
+            frame->transferRecording = false;
+            sync.wait(frame->transferDone, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT);
+        }
         if (frame->timestamps) {
             vkCmdWriteTimestamp(main, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame->timestamps, 1);
             frame->timed = true;

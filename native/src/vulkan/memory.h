@@ -56,7 +56,7 @@ namespace at {
     class GpuBuffer {
     public:
         GpuBuffer(const Device &device, MemoryAllocator &allocator, u64 size, VkBufferUsageFlags usage,
-                  VkMemoryPropertyFlags required, VkMemoryPropertyFlags preferred = 0);
+                  VkMemoryPropertyFlags required, VkMemoryPropertyFlags preferred = 0, bool transferShared = false);
 
         ~GpuBuffer();
 

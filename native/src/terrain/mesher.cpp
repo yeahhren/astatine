@@ -785,7 +785,8 @@ namespace at::terrain {
         result->empty = builder.empty;
 
         for (u32 layer = 0; layer < LAYERS; layer++) {
-            auto &[vertices, bucketQuads, centroids, sortMode, planes] = result->layers[layer];
+            auto &[vertices, bucketQuads, centroids, sortMode, planes, staged, count, indices, indexCount] =
+                    result->layers[layer];
             std::size_t total = 0;
             for (auto &bucket: scratch.buckets[layer]) total += bucket.size();
             if (total == 0) continue;

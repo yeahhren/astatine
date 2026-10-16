@@ -7,9 +7,9 @@
 
 namespace at {
     struct SubmitSync {
-        VkSemaphore waits[2]{};
-        u64 waitValues[2]{};
-        VkPipelineStageFlags waitStages[2]{};
+        VkSemaphore waits[4]{};
+        u64 waitValues[4]{};
+        VkPipelineStageFlags waitStages[4]{};
         u32 waitCount = 0;
         VkSemaphore signals[2]{};
         u64 signalValues[2]{};

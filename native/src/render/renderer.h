@@ -151,11 +151,15 @@ namespace at {
 
         void bindQuadIndices(bool flat);
 
+        void bindIndexBuffer(VkBuffer buffer) { bindIndices(buffer, 0); }
+
         void setVertexBuffers(VkBuffer first, u64 firstOffset, VkBuffer second, u64 secondOffset);
 
         u8 *stage(u64 bytes, VkBuffer &buffer, u64 &offset);
 
         VkCommandBuffer setupCommands();
+
+        VkCommandBuffer transferCommands();
 
         void markSetupTransfers() { setupTransfers = true; }
         VkCommandBuffer commands() const { return main; }

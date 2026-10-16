@@ -24,6 +24,7 @@ class SectionBuild(
     fun run() {
         val snapshot = slice.snapshot
         try {
+            Native.terrainSnapshotCopyClones(snapshot)
             resolve(snapshot)
         } catch (throwable: Throwable) {
             Native.terrainRelease(snapshot)

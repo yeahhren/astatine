@@ -27,6 +27,8 @@ namespace at {
         VkDevice handle = VK_NULL_HANDLE;
         VkQueue queue = VK_NULL_HANDLE;
         u32 queueFamily = 0;
+        VkQueue transferQueue = VK_NULL_HANDLE;
+        u32 transferFamily = ~0u;
         std::string name;
         u32 driverVersion = 0;
         u32 apiVersion = 0;

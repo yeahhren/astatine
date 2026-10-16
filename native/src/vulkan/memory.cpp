@@ -68,12 +68,18 @@ namespace at {
     }
 
     GpuBuffer::GpuBuffer(const Device &device, MemoryAllocator &allocator, u64 size, VkBufferUsageFlags usage,
-                         VkMemoryPropertyFlags required, VkMemoryPropertyFlags preferred)
+                         VkMemoryPropertyFlags required, VkMemoryPropertyFlags preferred, bool transferShared)
         : size(size), device(device), allocator(allocator) {
         VkBufferCreateInfo info{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         info.size = size;
         info.usage = usage;
         info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        u32 families[2] = {device.queueFamily, device.transferFamily};
+        if (transferShared && device.transferQueue) {
+            info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+            info.queueFamilyIndexCount = 2;
+            info.pQueueFamilyIndices = families;
+        }
         check(vkCreateBuffer(device.handle, &info, nullptr, &handle), "vkCreateBuffer");
         VkMemoryRequirements requirements;
         vkGetBufferMemoryRequirements(device.handle, handle, &requirements);

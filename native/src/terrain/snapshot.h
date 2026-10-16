@@ -3,8 +3,17 @@
 #include "core/common.h"
 
 #include <cstddef>
+#include <algorithm>
+#include <memory>
 
 namespace at::terrain {
+    struct SectionClone {
+        u16 states[4096];
+        u8 blockLight[2048];
+        u8 skyLight[2048];
+        bool sky;
+    };
+
     struct alignas(64) Snapshot {
         static constexpr u32 SKY = 1;
         static constexpr u32 SECTIONS = 27;
@@ -35,6 +44,22 @@ namespace at::terrain {
         u32 models[4096];
         u32 tints[4096];
         float flows[4096];
+        std::shared_ptr<const SectionClone> clones[SECTIONS];
+
+        void copyClones() {
+            for (u32 slot = 0; slot < SECTIONS; slot++) {
+                const std::shared_ptr<const SectionClone> &clone = clones[slot];
+                if (!clone) continue;
+                std::copy_n(clone->states, 4096, states[slot]);
+                std::copy_n(clone->blockLight, 2048, blockLight[slot]);
+                if (clone->sky) std::copy_n(clone->skyLight, 2048, skyLight[slot]);
+                clones[slot].reset();
+            }
+        }
+
+        void dropClones() {
+            for (auto &clone: clones) clone.reset();
+        }
     };
 
     static_assert(offsetof(Snapshot, states) == 64);
@@ -46,5 +71,5 @@ namespace at::terrain {
     static_assert(offsetof(Snapshot, models) == 349248);
     static_assert(offsetof(Snapshot, tints) == 365632);
     static_assert(offsetof(Snapshot, flows) == 382016);
-    static_assert(sizeof(Snapshot) == 398400);
+
 } // namespace at::terrain

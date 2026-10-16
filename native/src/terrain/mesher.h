@@ -4,6 +4,7 @@
 #include "terrain/occlusion.h"
 #include "terrain/tables.h"
 #include "terrain/vertex.h"
+#include "vulkan/staging_pool.h"
 
 #include <memory>
 #include <vector>
@@ -19,6 +20,10 @@ namespace at::terrain {
         std::vector<float> centroids;
         SortMode sortMode = SortMode::DISTANCE;
         std::vector<float> planes[3];
+        StagedData staged;
+        u32 count = 0;
+        StagedData indices;
+        u32 indexCount = 0;
     };
 
     u32 planeSignature(const std::vector<float> (&planes)[3], float x, float y, float z);
