@@ -10,7 +10,6 @@
 #include "vulkan/memory.h"
 
 #include <algorithm>
-#include <bit>
 #include <chrono>
 #include <cmath>
 #include <new>
@@ -93,6 +92,8 @@ namespace at::terrain {
         size = viewDistance * 2 + 1;
         sections.clear();
         sections.resize(static_cast<std::size_t>(size) * size * 16);
+        buildSize.store(size, std::memory_order_relaxed);
+        graphNodes.assign(sections.size(), GraphNode{});
         centerX = INT32_MIN;
         centerZ = INT32_MIN;
     }
@@ -102,10 +103,15 @@ namespace at::terrain {
             releaseGeometry(section);
             section = Section{};
         }
+        culler.cancel();
+        if (cullResult) culler.recycle(std::move(cullResult));
+        activeList = nullptr;
+        graphNodes.assign(sections.size(), GraphNode{});
+        graphVersion++;
+        listDirty = true;
         visible.clear();
         for (auto &list: layerVisible) list.clear();
         visibleCoordinates.clear();
-        graphDirty = true;
         centerX = INT32_MIN;
         centerZ = INT32_MIN;
         std::lock_guard guard(resultsLock);
@@ -136,7 +142,10 @@ namespace at::terrain {
     }
 
     void Terrain::reset(Section &section, i32 x, i32 y, i32 z) {
-        graphDirty = true;
+        GraphNode &node = graphNodes[slotIndex(section)];
+        node = GraphNode{.visibility = 0, .x = x, .z = z, .y = static_cast<u8>(y), .state = graph::VALID};
+        graphVersion++;
+        listDirty = true;
         releaseGeometry(section);
         u32 version = section.version + 1;
         section = Section{};
@@ -167,8 +176,7 @@ namespace at::terrain {
                 i32 blockZ = coordinate(baseZ, sz);
                 i32 sectionX = blockX >> 4, sectionZ = blockZ >> 4;
                 for (i32 y = 0; y < 16; y++) {
-                    Section *section = slot(sectionX, y, sectionZ);
-                    if (!section->valid || section->x != sectionX || section->z != sectionZ)
+                    if (Section *section = slot(sectionX, y, sectionZ); !section->valid || section->x != sectionX || section->z != sectionZ)
                         reset(
                             *section, sectionX, y, sectionZ);
                 }
@@ -228,6 +236,47 @@ namespace at::terrain {
         return true;
     }
 
+    std::size_t Terrain::slotIndex(const Section &section) const {
+        return static_cast<std::size_t>(&section - sections.data());
+    }
+
+    void Terrain::submitCull(i32 originX, i32 originY, i32 originZ, bool smart) {
+        auto input = std::make_unique<CullInput>();
+        input->nodes = graphNodes;
+        input->size = size;
+        input->viewDistance = viewDistance;
+        input->originX = originX;
+        input->originY = originY;
+        input->originZ = originZ;
+        input->smartCull = smart;
+        input->graphVersion = graphVersion;
+        culler.submit(std::move(input));
+        submittedX = originX;
+        submittedY = originY;
+        submittedZ = originZ;
+        submittedSmart = smart;
+        submittedVersion = graphVersion;
+    }
+
+    bool Terrain::acceptCull(std::unique_ptr<CullResult> result) {
+        if (!result) return false;
+        if (cullResult) culler.recycle(std::move(cullResult));
+        cullResult = std::move(result);
+        activeList = nullptr;
+        listDirty = true;
+        return true;
+    }
+
+    const std::vector<u32> *Terrain::candidates(i32 originX, i32 originY, i32 originZ) const {
+        if (!cullResult) return nullptr;
+        i32 dx = std::abs(originX - cullResult->originX);
+        i32 dy = std::abs(originY - cullResult->originY);
+        i32 dz = std::abs(originZ - cullResult->originZ);
+        if (dx == 0 && dy == 0 && dz == 0) return &cullResult->regular;
+        if (dx <= 1 && dy <= 1 && dz <= 1) return &cullResult->wide;
+        return nullptr;
+    }
+
     void Terrain::setup(const SetupParameters &parameters) {
         cameraX = parameters.x;
         cameraY = parameters.y;
@@ -235,20 +284,6 @@ namespace at::terrain {
         if (size == 0) return;
         recenter(cameraX, cameraZ);
         computeFrustum();
-
-        float clip[16];
-        std::memcpy(clip, renderer.state.projection.top(), 64);
-        mat4::multiply(clip, renderer.state.modelView.top());
-        bool same = !graphDirty && std::memcmp(clip, lastClip, sizeof(clip)) == 0 &&
-                    parameters.x == lastParameters.x && parameters.y == lastParameters.y &&
-                    parameters.z == lastParameters.z && parameters.eyeHeight == lastParameters.eyeHeight &&
-                    parameters.lookFace == lastParameters.lookFace && parameters.smartCull == lastParameters.smartCull &&
-                    parameters.spectator == lastParameters.spectator &&
-                    parameters.cameraInOpaque == lastParameters.cameraInOpaque;
-        if (same) return;
-        std::memcpy(lastClip, clip, sizeof(clip));
-        lastParameters = parameters;
-        graphDirty = false;
 
         float inverse[16];
         eyeX = cameraX;
@@ -266,61 +301,48 @@ namespace at::terrain {
             buildCamera[2] = static_cast<float>(eyeZ);
         }
 
+        i32 originX = floorDiv(floorToInt(cameraX), 16);
+        i32 originY = floorDiv(floorToInt(cameraY + parameters.eyeHeight), 16);
+        i32 originZ = floorDiv(floorToInt(cameraZ), 16);
+        bool smart = parameters.smartCull && !(parameters.spectator && parameters.cameraInOpaque);
+
+        acceptCull(culler.take(false));
+        bool stale = originX != submittedX || originY != submittedY || originZ != submittedZ ||
+                     smart != submittedSmart || graphVersion != submittedVersion;
+        if (stale && !culler.busy()) submitCull(originX, originY, originZ, smart);
+
+        const std::vector<u32> *list = candidates(originX, originY, originZ);
+        if (!list) {
+            if (!culler.busy()) submitCull(originX, originY, originZ, smart);
+            while (!list && acceptCull(culler.take(true))) {
+                list = candidates(originX, originY, originZ);
+                if (!list && !culler.busy()) submitCull(originX, originY, originZ, smart);
+            }
+            if (!list) return;
+        }
+
+        float clip[16];
+        std::memcpy(clip, renderer.state.projection.top(), 64);
+        mat4::multiply(clip, renderer.state.modelView.top());
+        bool same = !listDirty && list == activeList && std::memcmp(clip, lastClip, sizeof(clip)) == 0 &&
+                    parameters.x == lastParameters.x && parameters.y == lastParameters.y &&
+                    parameters.z == lastParameters.z && parameters.eyeHeight == lastParameters.eyeHeight;
+        if (same) return;
+        std::memcpy(lastClip, clip, sizeof(clip));
+        lastParameters = parameters;
+        listDirty = false;
+        activeList = list;
+
         frame++;
         if (frame == 0) frame = 1;
         visible.clear();
-        queue.clear();
-        i32 blockX = floorToInt(cameraX), blockY = floorToInt(cameraY + parameters.eyeHeight), blockZ =
-                floorToInt(cameraZ);
-        i32 originX = floorToInt(cameraX / 16.0) * 16, originZ = floorToInt(cameraZ / 16.0) * 16;
-        bool smart = parameters.smartCull;
-        i32 range = viewDistance * 16;
-        if (Section *start = at(floorDiv(blockX, 16), floorDiv(blockY, 16), floorDiv(blockZ, 16))) {
-            u32 faces = 0x3F;
-            if (start->opaque)
-                faces = openFaces(*start->opaque,
-                                  (blockX & 15) | ((blockZ & 15) << 4) | ((blockY & 15) << 8));
-            if (std::popcount(faces) == 1 && parameters.lookFace >= 0) faces &= ~(1u << parameters.lookFace);
-            if (faces == 0 && !parameters.spectator) {
-                visible.push_back(start);
-            } else {
-                if (parameters.spectator && parameters.cameraInOpaque) smart = false;
-                start->frame = frame;
-                queue.push_back({start, -1, 0});
-            }
-        } else {
-            i32 layer = blockY > 0 ? 15 : 0;
-            for (Section &section: sections) {
-                if (!section.valid || section.y != layer || !frustumVisible(section)) continue;
-                section.frame = frame;
-                queue.push_back({&section, -1, 0});
-            }
-        }
-
-        for (std::size_t head = 0; head < queue.size(); head++) {
-            Node node = queue[head];
-            Section &section = *node.section;
+        for (u32 slot: *list) {
+            Section &section = sections[slot];
+            if (!section.valid || !frustumVisible(section)) continue;
             visible.push_back(&section);
-            for (int direction = 0; direction < 6; direction++) {
-                if (smart && (node.culling & (1u << opposite(direction)))) continue;
-                if (smart && node.source >= 0 && !(section.compiled && terrain::visible(
-                                                       section.visibility, opposite(node.source), direction)))
-                    continue;
-                i32 nx = section.x + OFFSETS[direction][0], ny = section.y + OFFSETS[direction][1], nz =
-                        section.z + OFFSETS[direction][2];
-                if (std::abs(originX - nx * 16) > range || ny < 0 || ny > 15 || std::abs(originZ - nz * 16) > range)
-                    continue;
-                Section *neighbor = at(nx, ny, nz);
-                if (!neighbor || neighbor->frame == frame) continue;
-                neighbor->frame = frame;
-                if (!frustumVisible(*neighbor)) continue;
-                queue.push_back({
-                    neighbor, static_cast<i8>(direction), static_cast<u8>(node.culling | (1u << direction))
-                });
-            }
         }
 
-        for (auto &list: layerVisible) list.clear();
+        for (auto &layerList: layerVisible) layerList.clear();
         for (Section *section: visible) {
             section->drawnFrame = frame;
             for (u32 layer = 0; layer < LAYERS; layer++) {
@@ -358,6 +380,12 @@ namespace at::terrain {
             count++;
         };
         for (Section *section: visible) take(*section);
+        if (activeList) {
+            for (u32 slot: *activeList) {
+                if (count >= max) break;
+                take(sections[slot]);
+            }
+        }
         for (i32 radius = 1; radius <= 2 && count < max; radius++) {
             for (i32 dy = -radius; dy <= radius; dy++) {
                 for (i32 dz = -radius; dz <= radius; dz++) {
@@ -372,8 +400,7 @@ namespace at::terrain {
     }
 
     void Terrain::abort(i32 x, i32 y, i32 z, u32 version) {
-        Section *section = at(x, y, z);
-        if (section && section->building && section->buildingVersion == version) section->building = false;
+        if (Section *section = at(x, y, z); section && section->building && section->buildingVersion == version) section->building = false;
     }
 
     Snapshot *Terrain::acquireSnapshot() {
@@ -385,7 +412,7 @@ namespace at::terrain {
                 return snapshot;
             }
         }
-        void *memory = ::operator new(sizeof(Snapshot), std::align_val_t(alignof(Snapshot)));
+        void *memory = ::operator new(sizeof(Snapshot), static_cast<std::align_val_t>(alignof(Snapshot)));
         return new(memory) Snapshot();
     }
 
@@ -408,6 +435,14 @@ namespace at::terrain {
         std::unique_ptr<MeshResult> result;
         if (current) {
             result = mesh(*current, *snapshot, camera[0], camera[1], camera[2]);
+            i32 slotSize = buildSize.load(std::memory_order_relaxed);
+            if (slotSize > 0 && snapshot->sectionY >= 0 && snapshot->sectionY < 16) {
+                u32 slot = static_cast<u32>((floorMod(snapshot->sectionZ, slotSize) * slotSize +
+                                             floorMod(snapshot->sectionX, slotSize)) * 16 + snapshot->sectionY);
+                for (LayerMesh &layer: result->layers) {
+                    for (Vertex &vertex: layer.vertices) setSlot(vertex, slot);
+                }
+            }
         } else {
             result = std::make_unique<MeshResult>();
             result->x = snapshot->sectionX;
@@ -439,12 +474,12 @@ namespace at::terrain {
                 log::warn("Section %d %d %d does not fit in a terrain buffer", result.x, result.y, result.z);
                 continue;
             }
-            u64 bytes = u64(count) * sizeof(Vertex);
+            u64 bytes = static_cast<u64>(count) * sizeof(Vertex);
             VkBuffer staging;
             u64 offset;
             u8 *address = renderer.stage(bytes, staging, offset);
             std::memcpy(address, mesh.vertices.data(), bytes);
-            VkBufferCopy region{offset, u64(first) * sizeof(Vertex), bytes};
+            VkBufferCopy region{.srcOffset = offset, .dstOffset = static_cast<u64>(first) * sizeof(Vertex), .size = bytes};
             vkCmdCopyBuffer(setup, staging, arena->handle(buffer), 1, &region);
             uploadedBytes += bytes;
             layer.buffer = buffer;
@@ -466,10 +501,28 @@ namespace at::terrain {
                 if (!hadLayer[index] && section->layers[index].vertices > 0) layerVisible[index].push_back(section);
             }
         }
-        i32 eyeSectionX = floorDiv(floorToInt(eyeX), 16), eyeSectionY = floorDiv(floorToInt(eyeY), 16),
-                eyeSectionZ = floorDiv(floorToInt(eyeZ), 16);
-        bool cameraSection = section->x == eyeSectionX && section->y == eyeSectionY && section->z == eyeSectionZ;
-        if (!section->compiled || section->visibility != result.visibility || cameraSection) graphDirty = true;
+        std::size_t slot = slotIndex(*section);
+        GraphNode &node = graphNodes[slot];
+        if (!section->compiled || section->visibility != result.visibility) {
+            node.visibility = result.visibility;
+            node.state = graph::VALID | graph::COMPILED;
+            graphVersion++;
+        }
+        bool hasGeometry = false;
+        for (const SectionLayer &layer: section->layers) hasGeometry |= layer.vertices > 0;
+        if (hasGeometry && cullResult && slot < cullResult->member.size() && !cullResult->member[slot]) {
+            for (const auto &offset: OFFSETS) {
+                Section *neighbor = at(section->x + offset[0], section->y + offset[1], section->z + offset[2]);
+                if (!neighbor) continue;
+                u8 membership = cullResult->member[slotIndex(*neighbor)];
+                if (!membership) continue;
+                cullResult->member[slot] = membership;
+                if (membership & 1) cullResult->regular.push_back(static_cast<u32>(slot));
+                cullResult->wide.push_back(static_cast<u32>(slot));
+                listDirty = true;
+                break;
+            }
+        }
         section->builtVersion = result.version;
         section->compiled = true;
         section->visibility = result.visibility;
@@ -545,33 +598,109 @@ namespace at::terrain {
     }
 
     u32 Terrain::draw(u32 layerIndex) {
-        const std::vector<Section *> &candidates = layerVisible[layerIndex];
-        if (candidates.empty()) return 0;
+        const std::vector<Section *> &list = layerVisible[layerIndex];
+        if (list.empty()) return 0;
         bool translucent = layerIndex == TRANSLUCENT;
-        auto sectionsWithLayer = static_cast<u32>(candidates.size());
-        u64 commandBytes = u64(sectionsWithLayer) * BUCKETS * sizeof(VkDrawIndexedIndirectCommand);
-        u64 sectionBytes = u64(sectionsWithLayer) * sizeof(SectionDraw);
-        if (!renderer.prepare(commandBytes + 64, sectionBytes)) return 0;
+        u64 tableBytes = sections.size() * sizeof(SectionDraw);
+        u64 maxCommands = list.size() * BUCKETS + 64;
+        u64 commandBytes = maxCommands * sizeof(VkDrawIndexedIndirectCommand);
+        if (!renderer.prepare(commandBytes + 64, tableBytes)) return 0;
         renderer.bindState(renderer.layouts.terrain(), VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
         u32 record = renderer.record();
         bool facing = !translucent && renderer.state.cullsBack();
 
         FrameStream &data = renderer.dataStream();
         FrameStream &sectionStream = renderer.sectionStream();
-        u64 sectionOffset = sectionStream.allocate(sectionBytes, sizeof(SectionDraw));
+        u64 tableOffset = sectionStream.allocate(tableBytes, sizeof(SectionDraw));
         u64 commandOffset = data.allocate(commandBytes, 4);
-        if (sectionOffset == FrameStream::FAILED || commandOffset == FrameStream::FAILED) return 0;
-        auto *draws = reinterpret_cast<SectionDraw *>(sectionStream.address(sectionOffset));
+        if (tableOffset == FrameStream::FAILED || commandOffset == FrameStream::FAILED) return 0;
+        auto *table = reinterpret_cast<SectionDraw *>(sectionStream.address(tableOffset));
         auto *commands = reinterpret_cast<VkDrawIndexedIndirectCommand *>(data.address(commandOffset));
-        u32 sectionBase = static_cast<u32>(sectionOffset / sizeof(SectionDraw));
+        auto tableBase = static_cast<u32>(tableOffset / sizeof(SectionDraw));
+
+        drawRanges.clear();
+        u32 drawn = 0;
+        auto addRange = [&](u32 buffer, u32 first, u32 count) {
+            if (!drawRanges.empty()) {
+                if (auto &[rBuffer, rFirst, rCount] = drawRanges.back(); rBuffer == buffer && rFirst + rCount == first) {
+                    rCount += count;
+                    return;
+                }
+            }
+            drawRanges.push_back({.buffer = buffer, .first = first, .count = count});
+        };
+        auto addSection = [&](const Section &section) {
+            const SectionLayer &layer = section.layers[layerIndex];
+            if (layer.vertices == 0) return;
+            SectionDraw &entry = table[slotIndex(section)];
+            entry.offset[0] = static_cast<float>(section.x * 16 - cameraX);
+            entry.offset[1] = static_cast<float>(section.y * 16 - cameraY);
+            entry.offset[2] = static_cast<float>(section.z * 16 - cameraZ);
+            entry.record = record;
+            drawn++;
+            bool show[BUCKETS];
+            double minX = section.x * 16.0, minY = section.y * 16.0, minZ = section.z * 16.0;
+            show[0] = !facing || eyeY < minY + 18.0;
+            show[1] = !facing || eyeY > minY - 2.0;
+            show[2] = !facing || eyeZ < minZ + 18.0;
+            show[3] = !facing || eyeZ > minZ - 2.0;
+            show[4] = !facing || eyeX < minX + 18.0;
+            show[5] = !facing || eyeX > minX - 2.0;
+            show[6] = true;
+            u32 vertex = layer.first;
+            u32 start = 0, end = 0, gap = 0;
+            bool open = false;
+            for (u32 bucket = 0; bucket < BUCKETS; bucket++) {
+                u32 count = layer.bucketQuads[bucket] * 4;
+                if (count == 0) continue;
+                if (show[bucket]) {
+                    if (!open) {
+                        start = vertex;
+                        open = true;
+                    } else if (gap > BRIDGE_VERTICES) {
+                        addRange(layer.buffer, start, end - start);
+                        start = vertex;
+                    }
+                    end = vertex + count;
+                    gap = 0;
+                } else if (open) {
+                    gap += count;
+                }
+                vertex += count;
+            }
+            if (open) addRange(layer.buffer, start, end - start);
+        };
+
+        if (translucent) {
+            for (std::size_t i = list.size(); i-- > 0;) addSection(*list[i]);
+        } else {
+            for (Section *section: list) addSection(*section);
+            std::ranges::sort(drawRanges, [](const DrawRange &a, const DrawRange &b) {
+                return a.buffer != b.buffer ? a.buffer < b.buffer : a.first < b.first;
+            });
+            std::size_t merged = 0;
+            for (auto range : drawRanges) {
+                if (merged > 0) {
+                    if (auto &[buffer, first, count] = drawRanges[merged - 1]; buffer == range.buffer && first + count >= range.first) {
+                        count = std::max(first + count, range.first + range.count) - first;
+                        continue;
+                    }
+                }
+                drawRanges[merged++] = range;
+            }
+            drawRanges.resize(merged);
+        }
+        if (drawRanges.empty()) {
+            drawnLastFrame = drawn;
+            return drawn;
+        }
+
         const Device &device = *renderer.context().device;
         VkCommandBuffer main = renderer.commands();
         renderer.bindQuadIndices(false);
-
-        u32 drawn = 0;
         u32 commandCount = 0;
         u32 runStart = 0;
-        u32 runBuffer = ~0u;
+        u32 runBuffer = drawRanges.front().buffer;
         auto flushRun = [&] {
             u32 runCount = commandCount - runStart;
             if (runCount == 0) return;
@@ -580,8 +709,7 @@ namespace at::terrain {
                 for (u32 first = 0; first < runCount;) {
                     u32 batch = std::min(runCount - first, device.maxDrawIndirectCount);
                     vkCmdDrawIndexedIndirect(main, data.handle(),
-                                             commandOffset + u64(runStart + first) * sizeof(
-                                                 VkDrawIndexedIndirectCommand),
+                                             commandOffset + static_cast<u64>(runStart + first) * sizeof(VkDrawIndexedIndirectCommand),
                                              batch, sizeof(VkDrawIndexedIndirectCommand));
                     first += batch;
                 }
@@ -593,82 +721,25 @@ namespace at::terrain {
             }
             runStart = commandCount;
         };
-
-        auto emitSection = [&](const Section &section, u32 slot) {
-            const SectionLayer &layer = section.layers[layerIndex];
-            SectionDraw &entry = draws[slot];
-            entry.offset[0] = static_cast<float>(section.x * 16 - cameraX);
-            entry.offset[1] = static_cast<float>(section.y * 16 - cameraY);
-            entry.offset[2] = static_cast<float>(section.z * 16 - cameraZ);
-            entry.record = record;
-            bool show[BUCKETS];
-            double minX = section.x * 16.0, minY = section.y * 16.0, minZ = section.z * 16.0;
-            show[0] = !facing || eyeY < minY + 18.0;
-            show[1] = !facing || eyeY > minY - 2.0;
-            show[2] = !facing || eyeZ < minZ + 18.0;
-            show[3] = !facing || eyeZ > minZ - 2.0;
-            show[4] = !facing || eyeX < minX + 18.0;
-            show[5] = !facing || eyeX > minX - 2.0;
-            show[6] = true;
-            u32 quadStart = 0;
-            u32 pendingStart = 0, pendingQuads = 0;
-            auto push = [&] {
-                if (pendingQuads == 0) return;
-                for (u32 offset = 0; offset < pendingQuads;) {
-                    u32 run = std::min(pendingQuads - offset, Renderer::MAX_QUADS);
-                    commands[commandCount++] = {
-                        run * 6, 1, 0, static_cast<i32>(layer.first + (pendingStart + offset) * 4), sectionBase + slot
-                    };
-                    offset += run;
-                }
-                pendingQuads = 0;
-            };
-            for (u32 bucket = 0; bucket < BUCKETS; bucket++) {
-                u32 quads = layer.bucketQuads[bucket];
-                if (quads == 0) continue;
-                if (show[bucket]) {
-                    if (pendingQuads == 0) pendingStart = quadStart;
-                    if (pendingStart + pendingQuads == quadStart) {
-                        pendingQuads += quads;
-                    } else {
-                        push();
-                        pendingStart = quadStart;
-                        pendingQuads = quads;
-                    }
-                } else {
-                    push();
-                }
-                quadStart += quads;
-            }
-            push();
-        };
-
-        u32 slot = 0;
-        if (translucent) {
-            for (std::size_t i = candidates.size(); i-- > 0;) {
-                Section &section = *candidates[i];
-                const SectionLayer &layer = section.layers[layerIndex];
-                if (layer.vertices == 0) continue;
-                if (layer.buffer != runBuffer) {
-                    flushRun();
-                    runBuffer = layer.buffer;
-                }
-                emitSection(section, slot++);
-                drawn++;
-            }
-            flushRun();
-        } else {
-            for (u32 buffer = 0; buffer < arena->bufferCount(); buffer++) {
-                runBuffer = buffer;
-                for (Section *section: candidates) {
-                    const SectionLayer &layer = section->layers[layerIndex];
-                    if (layer.vertices == 0 || layer.buffer != buffer) continue;
-                    emitSection(*section, slot++);
-                    drawn++;
-                }
+        constexpr u32 MAX_VERTICES = Renderer::MAX_QUADS * 4;
+        for (const auto &[buffer, first, count]: drawRanges) {
+            if (buffer != runBuffer) {
                 flushRun();
+                runBuffer = buffer;
+            }
+            for (u32 offset = 0; offset < count;) {
+                u32 vertices = std::min(count - offset, MAX_VERTICES);
+                if (commandCount >= maxCommands) {
+                    flushRun();
+                    break;
+                }
+                commands[commandCount++] = {
+                    (vertices / 4) * 6, 1, 0, static_cast<i32>(first + offset), tableBase
+                };
+                offset += vertices;
             }
         }
+        flushRun();
         drawnLastFrame = drawn;
         return drawn;
     }
@@ -688,7 +759,7 @@ namespace at::terrain {
             for (const SectionLayer &layer: section->layers) any |= layer.vertices > 0;
             if (any) rendered++;
         }
-        return log::format("C: %u/%u D: %d, B: %u, Q: %u, M: %lluMB", rendered, total, viewDistance, building, dirty,
+        return log::format("C: %u/%u,%s D: %d, B: %u, Q: %u, M: %lluMB", rendered, total, compiled, viewDistance, building, dirty,
                            arena->usedVertices() * sizeof(Vertex) >> 20);
     }
 } // namespace at::terrain

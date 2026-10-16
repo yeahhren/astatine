@@ -73,6 +73,8 @@ namespace at::terrain {
             u32 light[SIZE * SIZE * SIZE]{};
             std::vector<Vertex> buckets[LAYERS][BUCKETS];
             std::vector<float> centroids;
+            std::vector<float> quadPlanes;
+            std::vector<u8> quadAxes;
         };
 
         class Builder {
@@ -177,20 +179,25 @@ namespace at::terrain {
             void emit(u32 layer, const float position[4][3], const u32 color[4], const float uv[4][2],
                       const u32 light[4], u8 bucket) {
                 std::vector<Vertex> &out = scratch.buckets[layer][layer == TRANSLUCENT ? UNASSIGNED : bucket];
+                float centerU = (uv[0][0] + uv[1][0] + uv[2][0] + uv[3][0]) * 0.25f;
+                float centerV = (uv[0][1] + uv[1][1] + uv[2][1] + uv[3][1]) * 0.25f;
                 for (int i = 0; i < 4; i++) {
-                    Vertex &vertex = out.emplace_back();
-                    vertex.x = encodePosition(position[i][0]);
-                    vertex.y = encodePosition(position[i][1]);
-                    vertex.z = encodePosition(position[i][2]);
-                    vertex.flags = 0;
-                    vertex.color = color[i];
-                    vertex.u = encodeUv(uv[i][0]);
-                    vertex.v = encodeUv(uv[i][1]);
-                    vertex.blockLight = static_cast<u8>(std::min(light[i] & 0xFFFF, 255u));
-                    vertex.skyLight = static_cast<u8>(std::min((light[i] >> 16) & 0xFFFF, 255u));
-                    vertex.pad = 0;
+                    out.push_back(packVertex(position[i][0], position[i][1], position[i][2], uv[i][0], uv[i][1],
+                                             centerU, centerV, color[i], light[i] & 0xFFFF, (light[i] >> 16) & 0xFFFF));
                 }
                 if (layer == TRANSLUCENT) {
+                    float ax = position[1][0] - position[0][0], ay = position[1][1] - position[0][1],
+                            az = position[1][2] - position[0][2];
+                    float bx = position[2][0] - position[0][0], by = position[2][1] - position[0][1],
+                            bz = position[2][2] - position[0][2];
+                    float normal[3] = {ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx};
+                    float length = std::sqrt(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
+                    u8 axis = 3;
+                    for (u8 candidate = 0; candidate < 3; candidate++) {
+                        if (length > 0.0f && std::abs(normal[candidate]) >= length * 0.9999f) axis = candidate;
+                    }
+                    scratch.quadAxes.push_back(axis);
+                    scratch.quadPlanes.push_back(axis < 3 ? position[0][axis] : 0.0f);
                     scratch.centroids.push_back(
                         (position[0][0] + position[1][0] + position[2][0] + position[3][0]) * 0.25f);
                     scratch.centroids.push_back(
@@ -745,6 +752,17 @@ namespace at::terrain {
         centroids.swap(sortedCentroids);
     }
 
+    u32 planeSignature(const std::vector<float> (&planes)[3], float x, float y, float z) {
+        float camera[3] = {x, y, z};
+        u32 signature = 0;
+        for (int axis = 0; axis < 3; axis++) {
+            u32 below = 0;
+            for (float plane: planes[axis]) below += plane < camera[axis] ? 1u : 0u;
+            signature |= std::min(below, 1023u) << (axis * 10);
+        }
+        return signature;
+    }
+
     std::unique_ptr<MeshResult> mesh(const Tables &tables, const Snapshot &snapshot, float cameraX, float cameraY,
                                      float cameraZ) {
         thread_local std::unique_ptr<Scratch> scratchStorage;
@@ -754,6 +772,8 @@ namespace at::terrain {
             for (auto &bucket: layer) bucket.clear();
         }
         scratch.centroids.clear();
+        scratch.quadPlanes.clear();
+        scratch.quadAxes.clear();
 
         auto result = std::make_unique<MeshResult>();
         result->x = snapshot.sectionX;
@@ -765,7 +785,7 @@ namespace at::terrain {
         result->empty = builder.empty;
 
         for (u32 layer = 0; layer < LAYERS; layer++) {
-            auto &[vertices, bucketQuads, centroids] = result->layers[layer];
+            auto &[vertices, bucketQuads, centroids, sortMode, planes] = result->layers[layer];
             std::size_t total = 0;
             for (auto &bucket: scratch.buckets[layer]) total += bucket.size();
             if (total == 0) continue;
@@ -777,6 +797,27 @@ namespace at::terrain {
             }
             if (layer == TRANSLUCENT) {
                 centroids = scratch.centroids;
+                bool aligned = true;
+                bool coplanar = true;
+                for (std::size_t quad = 0; quad < scratch.quadAxes.size(); quad++) {
+                    u8 axis = scratch.quadAxes[quad];
+                    if (axis > 2) {
+                        aligned = false;
+                        coplanar = false;
+                        break;
+                    }
+                    float plane = scratch.quadPlanes[quad];
+                    if (axis != scratch.quadAxes[0] || std::abs(plane - scratch.quadPlanes[0]) > 1e-4f) coplanar = false;
+                    std::vector<float> &list = planes[axis];
+                    bool known = false;
+                    for (float existing: list) known |= std::abs(existing - plane) <= 1e-4f;
+                    if (!known) list.push_back(plane);
+                }
+                for (auto &list: planes) std::sort(list.begin(), list.end());
+                sortMode = coplanar ? SortMode::NONE : aligned ? SortMode::PLANES : SortMode::DISTANCE;
+                if (!aligned) {
+                    for (auto &list: planes) list.clear();
+                }
                 sortQuads(vertices, centroids, cameraX - static_cast<float>(snapshot.sectionX * 16),
                           cameraY - static_cast<float>(snapshot.sectionY * 16),
                           cameraZ - static_cast<float>(snapshot.sectionZ * 16));

@@ -62,14 +62,11 @@ namespace at {
     VertexLayouts::VertexLayouts() {
         auto terrainLayout = std::make_unique<VertexLayout>();
         terrainLayout->id = 0;
-        terrainLayout->stride = 20;
-        terrainLayout->attributeStride = 20;
+        terrainLayout->stride = 16;
+        terrainLayout->attributeStride = 16;
         terrainLayout->terrain = true;
         terrainLayout->attributes = {
-            {.location = 0, .binding = 0, .format = VK_FORMAT_R16G16B16A16_UINT, .offset = 0},
-            {.location = 1, .binding = 0, .format = VK_FORMAT_R8G8B8A8_UNORM, .offset = 8},
-            {.location = 2, .binding = 0, .format = VK_FORMAT_R16G16_UNORM, .offset = 12},
-            {.location = 3, .binding = 0, .format = VK_FORMAT_R8G8_UINT, .offset = 16},
+            {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32A32_UINT, .offset = 0},
         };
         layouts.push_back(std::move(terrainLayout));
         descriptors.emplace_back();

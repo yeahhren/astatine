@@ -3,11 +3,13 @@
 #include "core/common.h"
 #include "core/vk.h"
 #include "memory/range_allocator.h"
+#include "terrain/culling.h"
 #include "terrain/mesher.h"
 #include "terrain/occlusion.h"
 #include "terrain/tables.h"
 #include "vulkan/memory.h"
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -93,7 +95,7 @@ namespace at {
 
             void setTables(std::shared_ptr<const Tables> next);
 
-            void configure(i32 viewDistance);
+            void configure(i32 distance);
 
             void clear();
 
@@ -107,7 +109,7 @@ namespace at {
 
             u32 upload(u64 budget, u64 budgetNanos);
 
-            u32 draw(u32 layer);
+            u32 draw(u32 layerIndex);
 
             u32 sortTranslucent(u32 limit) const;
 
@@ -125,12 +127,6 @@ namespace at {
             void build(Snapshot *snapshot);
 
         private:
-            struct Node {
-                Section *section;
-                i8 source;
-                u8 culling;
-            };
-
             Section *at(i32 x, i32 y, i32 z);
 
             Section *slot(i32 x, i32 y, i32 z);
@@ -138,6 +134,14 @@ namespace at {
             void recenter(double x, double z);
 
             void reset(Section &section, i32 x, i32 y, i32 z);
+
+            std::size_t slotIndex(const Section &section) const;
+
+            void submitCull(i32 originX, i32 originY, i32 originZ, bool smart);
+
+            bool acceptCull(std::unique_ptr<CullResult> result);
+
+            const std::vector<u32> *candidates(i32 originX, i32 originY, i32 originZ) const;
 
             void releaseGeometry(Section &section) const;
 
@@ -165,10 +169,24 @@ namespace at {
             std::vector<Section *> visible;
             std::vector<Section *> layerVisible[LAYERS];
             std::vector<i32> visibleCoordinates;
-            bool graphDirty = true;
+            std::vector<GraphNode> graphNodes;
+            u64 graphVersion = 1;
+            u64 submittedVersion = 0;
+            i32 submittedX = INT32_MIN, submittedY = INT32_MIN, submittedZ = INT32_MIN;
+            bool submittedSmart = true;
+            bool listDirty = true;
+            std::unique_ptr<CullResult> cullResult;
+            struct DrawRange {
+                u32 buffer;
+                u32 first;
+                u32 count;
+            };
+            static constexpr u32 BRIDGE_VERTICES = 1024;
+            std::vector<DrawRange> drawRanges;
+            std::atomic<i32> buildSize{0};
+            const std::vector<u32> *activeList = nullptr;
             float lastClip[16] = {};
             SetupParameters lastParameters{};
-            std::vector<Node> queue;
 
             std::mutex resultsLock;
             std::vector<std::unique_ptr<MeshResult> > results;
@@ -179,6 +197,7 @@ namespace at {
 
             u32 drawnLastFrame = 0;
             u64 uploadedBytes = 0;
+            Culler culler;
         };
     } // namespace terrain
 

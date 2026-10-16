@@ -77,7 +77,7 @@ namespace at {
         static constexpr u32 FRAMES = 2;
         static constexpr u64 STREAM_SIZE = 32ull << 20;
         static constexpr u64 RECORDS_PER_FRAME = 1ull << 16;
-        static constexpr u64 SECTIONS_PER_FRAME = 1ull << 17;
+        static constexpr u64 SECTIONS_PER_FRAME = 1ull << 19;
         static constexpr u32 MAX_QUADS = 1u << 16;
         static constexpr u32 BATCH_SIZE = 4096;
         static constexpr u32 INDIRECT_STRIDE = 20;
