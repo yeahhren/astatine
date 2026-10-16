@@ -12,8 +12,10 @@ namespace at {
     static constexpr VkAccessFlags ATTACHMENT_ACCESS = ATTACHMENT_WRITES | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
                                                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
 
-    RenderPassType::RenderPassType(const Device &device, Kind kind, u32 id, VkFormat colorFormat, VkFormat depthFormat)
-        : kind(kind), id(id), colorFormat(colorFormat), depthFormat(depthFormat), device(device) {
+    RenderPassType::RenderPassType(const Device &device, Kind kind, u32 id, VkFormat colorFormat, VkFormat depthFormat,
+                                   VkImageLayout surfaceLayout)
+        : kind(kind), id(id), colorFormat(colorFormat), depthFormat(depthFormat), surfaceLayout(surfaceLayout),
+          device(device) {
     }
 
     RenderPassType::~RenderPassType() {
@@ -40,9 +42,9 @@ namespace at {
         attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         if (surface) {
             attachments[0].initialLayout = colorLoad == VK_ATTACHMENT_LOAD_OP_LOAD
-                                               ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+                                               ? surfaceLayout
                                                : VK_IMAGE_LAYOUT_UNDEFINED;
-            attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            attachments[0].finalLayout = surfaceLayout;
         } else {
             attachments[0].initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             attachments[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -57,7 +59,7 @@ namespace at {
             attachments[1].format = depthFormat;
             attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
             attachments[1].loadOp = depthLoad;
-            attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            attachments[1].storeOp = surface ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE;
             attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
             attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
             attachments[1].initialLayout = !surface || depthLoad == VK_ATTACHMENT_LOAD_OP_LOAD

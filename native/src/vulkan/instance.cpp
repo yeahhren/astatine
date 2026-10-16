@@ -55,6 +55,12 @@ namespace at {
         for (const auto &extension: windowExtensions) extensions.push_back(extension.c_str());
         if (debug) extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         if (properties2) extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+        externalCapabilities = properties2 && hasInstanceExtension(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME) &&
+                               hasInstanceExtension(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
+        if (externalCapabilities) {
+            extensions.push_back(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME);
+            extensions.push_back(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
+        }
 
         VkApplicationInfo application{.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO};
         application.pApplicationName = "Minecraft";

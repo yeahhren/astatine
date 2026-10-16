@@ -6,6 +6,7 @@
 #include "render/primitives.h"
 #include "render/state.h"
 #include "render/vertex_layout.h"
+#include "vulkan/presenter.h"
 
 #include <functional>
 #include <memory>
@@ -68,6 +69,7 @@ namespace at {
         PFN_vkGetInstanceProcAddr (*getInstanceProcAddr)();
 
         WindowSizeFunction windowSize;
+        void *nativeWindow;
     };
 
     class Renderer {
@@ -129,6 +131,8 @@ namespace at {
 
         void present();
 
+        bool blitToSurface(Framebuffer *source, u32 width, u32 height);
+
         void flush();
 
         void setVsync(bool enabled);
@@ -181,7 +185,7 @@ namespace at {
 
         void beginRecording();
 
-        void submit(VkSemaphore wait, VkSemaphore signal);
+        void submit(const SubmitSync &sync);
 
         void finishSetup();
 
@@ -228,7 +232,7 @@ namespace at {
         std::unique_ptr<RenderPassType> offscreenDepthPass;
         std::unique_ptr<RenderPassType> offscreenColorPass;
         std::unique_ptr<RenderPassType> surfacePass;
-        std::unique_ptr<Swapchain> swapchain;
+        std::unique_ptr<Presenter> presenter;
         std::unique_ptr<SurfaceTarget> surface;
         std::vector<std::unique_ptr<FrameResources> > frames;
         std::unique_ptr<FrameStream> stream;

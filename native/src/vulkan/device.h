@@ -38,6 +38,8 @@ namespace at {
         bool multiDrawIndirect = false;
         u32 maxDrawIndirectCount = 1;
         bool bindless = false;
+        bool interop = false;
+        u8 luid[8] = {};
         u32 bindlessCapacity = 0;
         float lineWidthMax = 1.0f;
         u32 maxImageDimension = 0;

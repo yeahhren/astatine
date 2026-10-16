@@ -28,6 +28,7 @@
     "state.GlStateMixin",
     "state.LightingMixin",
     "target.RenderTargetMixin",
+    "terrain.ClientChunkCacheMixin",
     "terrain.ModelEntryAccessor",
     "terrain.WeightedBakedModelAccessor",
     "terrain.WeightedEntryAccessor",

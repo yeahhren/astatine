@@ -1,10 +1,10 @@
 #include "render/targets.h"
 
 #include "core/error.h"
+#include "core/log.h"
 #include "render/renderer.h"
 #include "vulkan/device.h"
 #include "vulkan/render_pass.h"
-#include "vulkan/swapchain.h"
 
 namespace at {
     Framebuffer::Framebuffer(const Device &device, MemoryAllocator &allocator, RenderPassType &pass, u32 width,
@@ -39,9 +39,9 @@ namespace at {
 
     SurfaceTarget::SurfaceTarget(const Device &device, MemoryAllocator &allocator, void *window,
                                  WindowSizeFunction windowSize,
-                                 RenderPassType &pass, Swapchain &swapchain)
+                                 RenderPassType &pass, Presenter &presenter)
         : DrawTarget(pass), device(device), allocator(allocator), window(window), windowSize(windowSize),
-          swapchain(swapchain) {
+          presenter(presenter) {
     }
 
     SurfaceTarget::~SurfaceTarget() {
@@ -49,15 +49,15 @@ namespace at {
     }
 
     u32 SurfaceTarget::width() const {
-        return swapchain.width;
+        return presenter.width;
     }
 
     u32 SurfaceTarget::height() const {
-        return swapchain.height;
+        return presenter.height;
     }
 
     VkImage SurfaceTarget::image() const {
-        return swapchain.images[static_cast<std::size_t>(imageIndex)];
+        return presenter.images[static_cast<std::size_t>(imageIndex)];
     }
 
     VkFramebuffer SurfaceTarget::framebuffer() {
@@ -65,8 +65,14 @@ namespace at {
         return framebuffers[static_cast<std::size_t>(imageIndex)];
     }
 
+    void SurfaceTarget::sync(SubmitSync &sync, VkCommandBuffer commands, bool presenting) {
+        if (imageIndex < 0) return;
+        presenter.sync(sync, commands, static_cast<u32>(imageIndex), !waited, presenting);
+        waited = true;
+    }
+
     bool SurfaceTarget::present() {
-        bool presented = swapchain.present(renderFinished(), static_cast<u32>(imageIndex));
+        bool presented = presenter.present(static_cast<u32>(imageIndex));
         if (!presented) valid = false;
         return presented;
     }
@@ -75,13 +81,14 @@ namespace at {
         imageIndex = -1;
         waited = false;
         startedThisFrame = false;
+        written = false;
         if (valid && !sizeMatches()) valid = false;
     }
 
     bool SurfaceTarget::acquire() {
         for (int attempt = 0; attempt < 2; attempt++) {
             if (!valid && !recreate()) return false;
-            if (int index = swapchain.acquire(acquireSemaphore); index >= 0) {
+            if (int index = presenter.acquire(acquireSemaphore); index >= 0) {
                 imageIndex = index;
                 return true;
             }
@@ -96,25 +103,22 @@ namespace at {
         if (width <= 0 || height <= 0) return false;
         device.waitIdle();
         destroyResources();
-        if (!swapchain.create(static_cast<u32>(width), static_cast<u32>(height), vsync)) return false;
-        depth = std::make_unique<GpuImage>(device, allocator, swapchain.width, swapchain.height, 1, pass.depthFormat,
+        if (!presenter.create(static_cast<u32>(width), static_cast<u32>(height), vsync)) return false;
+        log::info("Surface resized to %dx%d", width, height);
+        depth = std::make_unique<GpuImage>(device, allocator, presenter.width, presenter.height, 1, pass.depthFormat,
                                            device.depthAspect,
                                            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
-        framebuffers.resize(swapchain.views.size());
-        renderFinishedSemaphores.resize(swapchain.views.size());
-        for (std::size_t i = 0; i < swapchain.views.size(); i++) {
-            VkImageView attachments[2] = {swapchain.views[i], depth->view};
+        framebuffers.resize(presenter.views.size());
+        for (std::size_t i = 0; i < presenter.views.size(); i++) {
+            VkImageView attachments[2] = {presenter.views[i], depth->view};
             VkFramebufferCreateInfo info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
             info.renderPass = pass.compatible();
             info.attachmentCount = 2;
             info.pAttachments = attachments;
-            info.width = swapchain.width;
-            info.height = swapchain.height;
+            info.width = presenter.width;
+            info.height = presenter.height;
             info.layers = 1;
             check(vkCreateFramebuffer(device.handle, &info, nullptr, &framebuffers[i]), "vkCreateFramebuffer");
-            VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-            check(vkCreateSemaphore(device.handle, &semaphoreInfo, nullptr, &renderFinishedSemaphores[i]),
-                  "vkCreateSemaphore");
         }
         valid = true;
         return true;
@@ -123,14 +127,12 @@ namespace at {
     bool SurfaceTarget::sizeMatches() const {
         int width = 0, height = 0;
         windowSize(window, &width, &height);
-        return static_cast<u32>(width) == swapchain.width && static_cast<u32>(height) == swapchain.height;
+        return static_cast<u32>(width) == presenter.width && static_cast<u32>(height) == presenter.height;
     }
 
     void SurfaceTarget::destroyResources() {
         for (VkFramebuffer framebuffer: framebuffers) vkDestroyFramebuffer(device.handle, framebuffer, nullptr);
-        for (VkSemaphore semaphore: renderFinishedSemaphores) vkDestroySemaphore(device.handle, semaphore, nullptr);
         framebuffers.clear();
-        renderFinishedSemaphores.clear();
         depth.reset();
         valid = false;
     }

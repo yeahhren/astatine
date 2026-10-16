@@ -18,7 +18,8 @@ using namespace at;
 
 AT_EXPORT(void, initialize)(JNIEnv *env, jclass, jlong window, jlong getInstanceExtensions, jlong createSurface,
                             jlong destroySurface,
-                            jlong getInstanceProcAddr, jlong windowSize, jboolean validation, jstring cacheFile) {
+                            jlong getInstanceProcAddr, jlong windowSize, jlong nativeWindow, jboolean validation,
+                            jstring cacheFile) {
     jvm::handled(env, [&] {
         WindowSystem system{};
         system.window = pointer<void>(window);
@@ -27,6 +28,7 @@ AT_EXPORT(void, initialize)(JNIEnv *env, jclass, jlong window, jlong getInstance
         system.destroySurface = reinterpret_cast<decltype(system.destroySurface)>(destroySurface);
         system.getInstanceProcAddr = reinterpret_cast<decltype(system.getInstanceProcAddr)>(getInstanceProcAddr);
         system.windowSize = reinterpret_cast<WindowSizeFunction>(windowSize);
+        system.nativeWindow = pointer<void>(nativeWindow);
         Renderer::initialize(system, validation, jvm::string(env, cacheFile));
     });
 }
@@ -247,6 +249,14 @@ AT_EXPORT(void, framebufferRelease)(JNIEnv *env, jclass, jlong framebuffer) {
         if (!Renderer::ready()) return;
         RENDERER();
         renderer.releaseFramebuffer(pointer<Framebuffer>(framebuffer));
+    });
+}
+
+AT_EXPORT(jboolean, framebufferBlit)(JNIEnv *env, jclass, jlong framebuffer, jint width, jint height) {
+    return jvm::handled(env, [&]() -> jboolean {
+        RENDERER();
+        return renderer.blitToSurface(pointer<Framebuffer>(framebuffer), static_cast<u32>(width),
+                                      static_cast<u32>(height));
     });
 }
 

@@ -4,11 +4,15 @@ import java.nio.ByteBuffer;
 import net.minecraft.client.render.pipeline.RenderTarget;
 import net.minecraft.client.render.platform.GLX;
 import net.minecraft.client.render.platform.GlStateManager;
+import net.minecraft.client.render.vertex.BufferBuilder;
+import net.minecraft.client.render.vertex.Tesselator;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import yt.ren.astatine.Native;
 import yt.ren.astatine.extension.FramebufferHolder;
 import yt.ren.astatine.render.GL;
@@ -30,6 +34,21 @@ public abstract class RenderTargetMixin implements FramebufferHolder {
 
 	@Shadow
 	public int colorTextureId;
+
+	@Shadow
+	public int viewWidth;
+
+	@Shadow
+	public int viewHeight;
+
+	@Unique
+	private boolean astatine$opaqueDraw;
+
+	@Unique
+	private int astatine$drawWidth;
+
+	@Unique
+	private int astatine$drawHeight;
 
 	@Unique
 	private long astatine$framebuffer;
@@ -96,6 +115,25 @@ public abstract class RenderTargetMixin implements FramebufferHolder {
 		} else {
 			GlStateManager.bindTexture(texture);
 		}
+	}
+
+	@Inject(method = "draw(IIZ)V", at = @At("HEAD"))
+	private void astatine$beginDraw(int width, int height, boolean disableBlend, CallbackInfo callback) {
+		this.astatine$opaqueDraw = disableBlend && this.viewWidth == this.width && this.viewHeight == this.height;
+		this.astatine$drawWidth = width;
+		this.astatine$drawHeight = height;
+	}
+
+	@Redirect(method = "draw(IIZ)V", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/vertex/Tesselator;end()V"))
+	private void astatine$blit(Tesselator tesselator) {
+		if (this.astatine$opaqueDraw && this.astatine$framebuffer != 0L
+			&& Native.framebufferBlit(this.astatine$framebuffer, this.astatine$drawWidth, this.astatine$drawHeight)) {
+			BufferBuilder builder = tesselator.getBuffer();
+			builder.end();
+			builder.clear();
+			return;
+		}
+		tesselator.end();
 	}
 
 	@Redirect(method = "destroyBuffers", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/platform/GLX;deleteRenderbuffers(I)V"))

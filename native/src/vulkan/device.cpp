@@ -4,6 +4,7 @@
 #include "vulkan/instance.h"
 
 #include <algorithm>
+#include <cstring>
 #include <vector>
 
 namespace at {
@@ -143,6 +144,38 @@ namespace at {
             extensions.push_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
         }
 
+        VkPhysicalDeviceTimelineSemaphoreFeaturesKHR timeline{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR
+        };
+#ifdef _WIN32
+        const char *interopExtensions[] = {
+            VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME, "VK_KHR_external_memory_win32",
+            VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME, "VK_KHR_external_semaphore_win32",
+            VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+            VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME
+        };
+        if (instance.externalCapabilities && vkGetPhysicalDeviceFeatures2KHR && vkGetPhysicalDeviceProperties2KHR) {
+            bool available = true;
+            for (const char *extension: interopExtensions) available &= hasExtension(physical, extension);
+            if (available) {
+                VkPhysicalDeviceFeatures2 features2{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+                features2.pNext = &timeline;
+                vkGetPhysicalDeviceFeatures2KHR(physical, &features2);
+                VkPhysicalDeviceIDPropertiesKHR id{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES_KHR};
+                VkPhysicalDeviceProperties2 properties2{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+                properties2.pNext = &id;
+                vkGetPhysicalDeviceProperties2KHR(physical, &properties2);
+                interop = timeline.timelineSemaphore && id.deviceLUIDValid;
+                if (interop) {
+                    std::memcpy(luid, id.deviceLUID, sizeof(luid));
+                    for (const char *extension: interopExtensions) extensions.push_back(extension);
+                }
+            }
+        }
+#endif
+        timeline = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR};
+        timeline.timelineSemaphore = interop;
+
         float priority = 1.0f;
         VkDeviceQueueCreateInfo queueInfo{.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
         queueInfo.queueFamilyIndex = queueFamily;
@@ -163,7 +196,16 @@ namespace at {
         info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
         info.ppEnabledExtensionNames = extensions.data();
         info.pEnabledFeatures = &features;
-        if (bindless) info.pNext = &enabled;
+        void *chain = nullptr;
+        if (bindless) {
+            enabled.pNext = chain;
+            chain = &enabled;
+        }
+        if (interop) {
+            timeline.pNext = chain;
+            chain = &timeline;
+        }
+        info.pNext = chain;
         check(vkCreateDevice(physical, &info, nullptr, &handle), "vkCreateDevice");
         loadDevice(handle);
         vkGetDeviceQueue(handle, queueFamily, 0, &queue);

@@ -9,6 +9,7 @@ object Native {
         destroySurface: Long,
         getInstanceProcAddr: Long,
         windowSize: Long,
+        nativeWindow: Long,
         validation: Boolean,
         cacheFile: String,
     )
@@ -99,6 +100,9 @@ object Native {
 
     @JvmStatic
     external fun framebufferRelease(framebuffer: Long)
+
+    @JvmStatic
+    external fun framebufferBlit(framebuffer: Long, width: Int, height: Int): Boolean
 
     @JvmStatic
     external fun framebufferTexture(framebuffer: Long): Long

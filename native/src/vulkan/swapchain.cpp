@@ -6,6 +6,7 @@
 namespace at {
     Swapchain::Swapchain(const Device &device, VkSurfaceKHR surface) : device(device), surface(surface) {
         format = chooseFormat();
+        layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     }
 
     Swapchain::~Swapchain() {
@@ -46,7 +47,9 @@ namespace at {
         info.imageExtent = {.width = extentWidth, .height = extentHeight};
         info.imageArrayLayers = 1;
         info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (
-                              capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+                              capabilities.supportedUsageFlags & (VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                                                  VK_IMAGE_USAGE_TRANSFER_DST_BIT));
+        blitTarget = (capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) != 0;
         info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         info.preTransform = capabilities.currentTransform;
         info.compositeAlpha = compositeAlpha;
@@ -66,6 +69,11 @@ namespace at {
         images.resize(count);
         check(vkGetSwapchainImagesKHR(device.handle, handle, &count, images.data()), "vkGetSwapchainImagesKHR");
         views.resize(count);
+        renderFinished.resize(count);
+        for (VkSemaphore &semaphore: renderFinished) {
+            VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+            check(vkCreateSemaphore(device.handle, &semaphoreInfo, nullptr, &semaphore), "vkCreateSemaphore");
+        }
         for (u32 i = 0; i < count; i++) {
             VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
             viewInfo.image = images[i];
@@ -77,7 +85,8 @@ namespace at {
         return true;
     }
 
-    int Swapchain::acquire(VkSemaphore semaphore) const {
+    int Swapchain::acquire(VkSemaphore semaphore) {
+        available = semaphore;
         uint32_t index = 0;
         VkResult result = vkAcquireNextImageKHR(device.handle, handle, ~0ull, semaphore, VK_NULL_HANDLE, &index);
         if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) return static_cast<int>(index);
@@ -85,7 +94,14 @@ namespace at {
         throw VulkanError(result, "vkAcquireNextImageKHR");
     }
 
-    bool Swapchain::present(VkSemaphore semaphore, u32 index) const {
+    void Swapchain::sync(SubmitSync &sync, VkCommandBuffer, u32 index, bool first, bool presenting) {
+        if (first)
+            sync.wait(available, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT);
+        if (presenting) sync.signal(renderFinished[index]);
+    }
+
+    bool Swapchain::present(u32 index) {
+        VkSemaphore semaphore = renderFinished[index];
         VkPresentInfoKHR info{.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
         info.waitSemaphoreCount = 1;
         info.pWaitSemaphores = &semaphore;
@@ -101,6 +117,8 @@ namespace at {
     void Swapchain::destroyViews() {
         for (VkImageView view: views) vkDestroyImageView(device.handle, view, nullptr);
         views.clear();
+        for (VkSemaphore semaphore: renderFinished) vkDestroySemaphore(device.handle, semaphore, nullptr);
+        renderFinished.clear();
     }
 
     VkFormat Swapchain::chooseFormat() const {

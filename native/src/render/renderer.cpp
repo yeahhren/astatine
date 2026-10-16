@@ -14,6 +14,7 @@
 #include "vulkan/instance.h"
 #include "vulkan/memory.h"
 #include "vulkan/render_pass.h"
+#include "vulkan/dxgi_presenter.h"
 #include "vulkan/swapchain.h"
 
 #include <algorithm>
@@ -56,6 +57,26 @@ namespace at {
         }
     }
 
+    static std::unique_ptr<Presenter> createPresenter(const Device &device, VkSurfaceKHR surface,
+                                                      const WindowSystem &system) {
+#ifdef _WIN32
+        if (device.interop && system.nativeWindow) {
+            int width = 0, height = 0;
+            system.windowSize(system.window, &width, &height);
+            try {
+                auto presenter = std::make_unique<DxgiPresenter>(device, system.nativeWindow,
+                                                                 static_cast<u32>(std::max(width, 1)),
+                                                                 static_cast<u32>(std::max(height, 1)));
+                log::info("Presenting through a DXGI swapchain");
+                return presenter;
+            } catch (const std::exception &error) {
+                log::warn("DXGI presentation is unavailable, using the Vulkan swapchain: %s", error.what());
+            }
+        }
+#endif
+        return std::make_unique<Swapchain>(device, surface);
+    }
+
     Renderer::Renderer(VkSurfaceKHR surfaceHandle, const WindowSystem &system, std::string cacheFile) {
         instance = this;
         contextValue = std::make_unique<Context>();
@@ -91,11 +112,11 @@ namespace at {
         offscreenColorPass = std::make_unique<RenderPassType>(device, RenderPassType::Kind::Offscreen, 1,
                                                               VK_FORMAT_B8G8R8A8_UNORM,
                                                               VK_FORMAT_UNDEFINED);
-        swapchain = std::make_unique<Swapchain>(device, surfaceHandle);
-        surfacePass = std::make_unique<RenderPassType>(device, RenderPassType::Kind::Surface, 2, swapchain->format,
-                                                       device.depthFormat);
+        presenter = createPresenter(device, surfaceHandle, system);
+        surfacePass = std::make_unique<RenderPassType>(device, RenderPassType::Kind::Surface, 2, presenter->format,
+                                                       device.depthFormat, presenter->layout);
         surface = std::make_unique<SurfaceTarget>(device, *context.allocator, system.window, system.windowSize,
-                                                  *surfacePass, *swapchain);
+                                                  *surfacePass, *presenter);
         target = surface.get();
         createFrameSet();
         commandBuffer = static_cast<u8 *>(std::calloc(1, COMMAND_BUFFER_SIZE + 64));
@@ -133,7 +154,7 @@ namespace at {
         sections.reset();
         vkDestroyDescriptorPool(context.device->handle, framePool, nullptr);
         surface.reset();
-        swapchain.reset();
+        presenter.reset();
         offscreenDepthPass.reset();
         offscreenColorPass.reset();
         surfacePass.reset();
@@ -397,7 +418,7 @@ namespace at {
         if (surface->imageIndex < 0) return;
         VkImage source = surface->image();
         i32 top = static_cast<i32>(surface->height()) - y;
-        imageBarrier(main, source, VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        imageBarrier(main, source, VK_IMAGE_ASPECT_COLOR_BIT, 1, surface->layout(),
                      VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         imageBarrier(main, image->handle, VK_IMAGE_ASPECT_COLOR_BIT, image->levels,
                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -413,7 +434,7 @@ namespace at {
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region,
                        VK_FILTER_NEAREST);
         imageBarrier(main, source, VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                     VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+                     surface->layout());
         imageBarrier(main, image->handle, VK_IMAGE_ASPECT_COLOR_BIT, image->levels,
                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -443,12 +464,44 @@ namespace at {
         std::memcpy(destination, readback.mapped(), bytes);
     }
 
+    bool Renderer::blitToSurface(Framebuffer *source, u32 width, u32 height) {
+        if (target != surface.get() || !source || !source->color || !surface->blitTarget()) return false;
+        ensureRecording();
+        endPass();
+        if (!surface->acquireImage()) return true;
+        if (width != surface->width() || height != surface->height()) return false;
+        VkImage destination = surface->image();
+        VkImage image = source->color->handle;
+        imageBarrier(main, image, VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        imageBarrier(main, destination, VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        auto sourceWidth = static_cast<i32>(source->width()), sourceHeight = static_cast<i32>(source->height());
+        VkImageBlit region{};
+        region.srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1};
+        region.srcOffsets[0] = {.x = 0, .y = 0, .z = 0};
+        region.srcOffsets[1] = {.x = sourceWidth, .y = sourceHeight, .z = 1};
+        region.dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1};
+        region.dstOffsets[0] = {.x = 0, .y = static_cast<i32>(height), .z = 0};
+        region.dstOffsets[1] = {.x = static_cast<i32>(width), .y = 0, .z = 1};
+        bool scaled = source->width() != width || source->height() != height;
+        vkCmdBlitImage(main, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, destination,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, scaled ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
+        imageBarrier(main, image, VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        imageBarrier(main, destination, VK_IMAGE_ASPECT_COLOR_BIT, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     surface->layout());
+        surface->markWritten();
+        return true;
+    }
+
     void Renderer::present() {
         ensureRecording();
         endPass();
         bool acquired = surface->imageIndex >= 0;
-        submit(acquired && !surface->waited ? frame->imageAvailable : VK_NULL_HANDLE,
-               acquired ? surface->renderFinished() : VK_NULL_HANDLE);
+        SubmitSync sync;
+        surface->sync(sync, main, true);
+        submit(sync);
         if (acquired) surface->present();
         surface->endFrame();
         frameIndex = (frameIndex + 1) % FRAMES;
@@ -456,9 +509,9 @@ namespace at {
 
     void Renderer::flush() {
         if (!recording) return;
-        bool acquired = surface->imageIndex >= 0;
-        submit(acquired && !surface->waited ? frame->imageAvailable : VK_NULL_HANDLE, VK_NULL_HANDLE);
-        if (acquired) surface->waited = true;
+        SubmitSync sync;
+        surface->sync(sync, main, false);
+        submit(sync);
         frame->await();
         beginRecording();
     }
@@ -509,7 +562,7 @@ namespace at {
         }
     }
 
-    void Renderer::submit(VkSemaphore wait, VkSemaphore signal) {
+    void Renderer::submit(const SubmitSync &sync) {
         endPass();
         finishSetup();
         if (frame->timestamps) {
@@ -519,18 +572,21 @@ namespace at {
         check(vkEndCommandBuffer(setup), "vkEndCommandBuffer");
         check(vkEndCommandBuffer(main), "vkEndCommandBuffer");
         VkCommandBuffer buffers[2] = {setup, main};
-        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         VkSubmitInfo info{VK_STRUCTURE_TYPE_SUBMIT_INFO};
         info.commandBufferCount = 2;
         info.pCommandBuffers = buffers;
-        if (wait) {
-            info.waitSemaphoreCount = 1;
-            info.pWaitSemaphores = &wait;
-            info.pWaitDstStageMask = &waitStage;
-        }
-        if (signal) {
-            info.signalSemaphoreCount = 1;
-            info.pSignalSemaphores = &signal;
+        info.waitSemaphoreCount = sync.waitCount;
+        info.pWaitSemaphores = sync.waits;
+        info.pWaitDstStageMask = sync.waitStages;
+        info.signalSemaphoreCount = sync.signalCount;
+        info.pSignalSemaphores = sync.signals;
+        VkTimelineSemaphoreSubmitInfoKHR timeline{.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO_KHR};
+        if (sync.timeline) {
+            timeline.waitSemaphoreValueCount = sync.waitCount;
+            timeline.pWaitSemaphoreValues = sync.waitValues;
+            timeline.signalSemaphoreValueCount = sync.signalCount;
+            timeline.pSignalSemaphoreValues = sync.signalValues;
+            info.pNext = &timeline;
         }
         check(vkQueueSubmit(contextValue->device->queue, 1, &info, frame->fence), "vkQueueSubmit");
         recording = false;
@@ -605,7 +661,7 @@ namespace at {
             return false;
         }
         VkAttachmentLoadOp colorLoad = (pendingClear & CLEAR_COLOR) ? VK_ATTACHMENT_LOAD_OP_CLEAR : target->loadOp();
-        VkAttachmentLoadOp depthLoad = (pendingClear & CLEAR_DEPTH) ? VK_ATTACHMENT_LOAD_OP_CLEAR : target->loadOp();
+        VkAttachmentLoadOp depthLoad = (pendingClear & CLEAR_DEPTH) ? VK_ATTACHMENT_LOAD_OP_CLEAR : target->depthLoadOp();
         VkClearValue clearValues[2]{};
         std::memcpy(clearValues[0].color.float32, clearColorValue, sizeof(clearColorValue));
         clearValues[1].depthStencil = {clearDepthValue, 0};
@@ -943,6 +999,7 @@ namespace at {
             case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL: return VK_ACCESS_SHADER_READ_BIT;
             case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
                 return VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            case VK_IMAGE_LAYOUT_GENERAL:
             case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR: return VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
             default: return 0;
         }
@@ -956,6 +1013,7 @@ namespace at {
             case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL: return VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
             case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
                 return VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+            case VK_IMAGE_LAYOUT_GENERAL:
             case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR: return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
             default: return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
         }

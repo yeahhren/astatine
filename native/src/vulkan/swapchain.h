@@ -2,30 +2,30 @@
 
 #include "core/common.h"
 #include "core/vk.h"
+#include "vulkan/presenter.h"
 
 #include <vector>
 
 namespace at {
     class Device;
 
-    class Swapchain {
+    class Swapchain final : public Presenter {
     public:
         Swapchain(const Device &device, VkSurfaceKHR surface);
 
-        ~Swapchain();
+        ~Swapchain() override;
 
-        bool create(u32 requestedWidth, u32 requestedHeight, bool vsync);
+        bool create(u32 requestedWidth, u32 requestedHeight, bool vsync) override;
 
-        int acquire(VkSemaphore semaphore) const;
+        int acquire(VkSemaphore available) override;
 
-        bool present(VkSemaphore semaphore, u32 index) const;
+        void sync(SubmitSync &sync, VkCommandBuffer commands, u32 index, bool first, bool presenting) override;
+
+        bool present(u32 index) override;
+
+        bool setVsync(bool) override { return true; }
 
         VkSwapchainKHR handle = VK_NULL_HANDLE;
-        VkFormat format;
-        u32 width = 0;
-        u32 height = 0;
-        std::vector<VkImage> images;
-        std::vector<VkImageView> views;
 
     private:
         [[nodiscard]] VkFormat chooseFormat() const;
@@ -36,5 +36,7 @@ namespace at {
 
         const Device &device;
         VkSurfaceKHR surface;
+        VkSemaphore available = VK_NULL_HANDLE;
+        std::vector<VkSemaphore> renderFinished;
     };
 } // namespace at

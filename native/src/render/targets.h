@@ -4,6 +4,7 @@
 #include "core/vk.h"
 #include "render/texture.h"
 #include "vulkan/memory.h"
+#include "vulkan/presenter.h"
 
 #include <memory>
 #include <vector>
@@ -11,7 +12,6 @@
 namespace at {
     class Device;
     class RenderPassType;
-    class Swapchain;
 
     class DrawTarget {
     public:
@@ -27,6 +27,8 @@ namespace at {
         virtual VkFramebuffer framebuffer() = 0;
 
         [[nodiscard]] virtual VkAttachmentLoadOp loadOp() const = 0;
+
+        [[nodiscard]] virtual VkAttachmentLoadOp depthLoadOp() const { return loadOp(); }
 
         virtual void passStarted() {
         }
@@ -62,7 +64,7 @@ namespace at {
     public:
         SurfaceTarget(const Device &device, MemoryAllocator &allocator, void *window, WindowSizeFunction windowSize,
                       RenderPassType &pass,
-                      Swapchain &swapchain);
+                      Presenter &presenter);
 
         ~SurfaceTarget() override;
 
@@ -73,23 +75,33 @@ namespace at {
         VkFramebuffer framebuffer() override;
 
         [[nodiscard]] VkAttachmentLoadOp loadOp() const override {
+            return startedThisFrame || written ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        }
+
+        [[nodiscard]] VkAttachmentLoadOp depthLoadOp() const override {
             return startedThisFrame ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         }
 
+        bool acquireImage() { return imageIndex >= 0 || acquire(); }
+
+        [[nodiscard]] bool blitTarget() const { return presenter.blitTarget; }
+
+        void markWritten() { written = true; }
+
         void passStarted() override { startedThisFrame = true; }
 
-        [[nodiscard]] VkSemaphore renderFinished() const {
-            return renderFinishedSemaphores[static_cast<std::size_t>(imageIndex)];
-        }
-
         [[nodiscard]] VkImage image() const;
+
+        [[nodiscard]] VkImageLayout layout() const { return presenter.layout; }
+
+        void sync(SubmitSync &sync, VkCommandBuffer commands, bool presenting);
 
         bool present();
 
         void endFrame();
 
         void setVsync(bool enabled) {
-            if (vsync != enabled) valid = false;
+            if (vsync != enabled && presenter.setVsync(enabled)) valid = false;
             vsync = enabled;
         }
 
@@ -112,12 +124,12 @@ namespace at {
         MemoryAllocator &allocator;
         void *window;
         WindowSizeFunction windowSize;
-        Swapchain &swapchain;
+        Presenter &presenter;
         std::vector<VkFramebuffer> framebuffers;
-        std::vector<VkSemaphore> renderFinishedSemaphores;
         std::unique_ptr<GpuImage> depth;
         bool valid = false;
         bool startedThisFrame = false;
+        bool written = false;
         bool vsync = true;
     };
 } // namespace at

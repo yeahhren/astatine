@@ -10,7 +10,8 @@ namespace at {
     public:
         enum class Kind { Offscreen, Surface };
 
-        RenderPassType(const Device &device, Kind kind, u32 id, VkFormat colorFormat, VkFormat depthFormat);
+        RenderPassType(const Device &device, Kind kind, u32 id, VkFormat colorFormat, VkFormat depthFormat,
+                       VkImageLayout surfaceLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
         ~RenderPassType();
 
@@ -29,6 +30,7 @@ namespace at {
         const u32 id;
         const VkFormat colorFormat;
         const VkFormat depthFormat;
+        const VkImageLayout surfaceLayout;
 
     private:
         [[nodiscard]] VkRenderPass create(VkAttachmentLoadOp colorLoad, VkAttachmentLoadOp depthLoad) const;

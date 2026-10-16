@@ -19,6 +19,7 @@ namespace at {
 
         VkInstance handle = VK_NULL_HANDLE;
         bool properties2 = false;
+        bool externalCapabilities = false;
 
     private:
         VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
