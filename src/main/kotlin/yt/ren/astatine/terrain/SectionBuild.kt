@@ -38,7 +38,7 @@ class SectionBuild(
         val tableModels = TerrainTables.tableModels
         val pos = BlockPos.Mutable()
         val neighbor = BlockPos.Mutable()
-        val directions = Direction.entries.toTypedArray()
+        val directions = DIRECTIONS
         val debug = slice.getGeneratorType() == WorldGeneratorType.DEBUG_ALL_BLOCK_STATES
         val originX = x shl 4
         val originY = y shl 4
@@ -109,5 +109,9 @@ class SectionBuild(
             }
             if (overrides != 0) Memory.putByte(snapshot + Snapshots.OVERRIDES + index, overrides.toByte())
         }
+    }
+
+    private companion object {
+        val DIRECTIONS: Array<Direction> = Direction.entries.toTypedArray()
     }
 }

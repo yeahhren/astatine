@@ -3,6 +3,10 @@
 #include <algorithm>
 #include <cstdlib>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace at::terrain {
     static constexpr u32 ALL_DIRECTIONS = 0x3F;
 
@@ -51,6 +55,9 @@ namespace at::terrain {
     }
 
     Culler::Culler() : worker([this] { run(); }) {
+#ifdef _WIN32
+        SetThreadPriority(worker.native_handle(), THREAD_PRIORITY_BELOW_NORMAL);
+#endif
     }
 
     Culler::~Culler() {

@@ -22,7 +22,9 @@ import java.util.concurrent.atomic.AtomicInteger
 object TerrainRenderer {
     private val logger = LogManager.getLogger("Astatine/Terrain")
     private const val UPLOAD_BUDGET = 24L shl 20
-    private const val UPLOAD_NANOS = 2_000_000L
+    private const val BUDGET_SHARE = 0.15
+    private const val MIN_BUDGET_NANOS = 50_000L
+    private const val MAX_BUDGET_NANOS = 2_000_000L
     private const val SCHEDULE_ENTRIES = 256
     private const val TRANSLUCENT_SORTS = 15
 
@@ -45,9 +47,11 @@ object TerrainRenderer {
     private var renderer: WorldRenderer? = null
     private val blockEntities = LongObjectMap<List<BlockEntity>>()
     private val globalBlockEntities = LongObjectMap<List<BlockEntity>>()
-    private var lastSortX = Double.MAX_VALUE
-    private var lastSortY = Double.MAX_VALUE
-    private var lastSortZ = Double.MAX_VALUE
+    private var lastFrameNanos = 0L
+    private var frameNanos = 4_000_000.0
+    private var snapshotNanos = 100_000.0
+
+    private fun budgetNanos(): Long = (frameNanos * BUDGET_SHARE).toLong().coerceIn(MIN_BUDGET_NANOS, MAX_BUDGET_NANOS)
 
     @JvmStatic
     fun key(x: Int, y: Int, z: Int): Long =
@@ -63,7 +67,6 @@ object TerrainRenderer {
         Native.terrainConfigure(viewDistance)
         blockEntities.clear()
         globalBlockEntities.clear()
-        lastSortX = Double.MAX_VALUE
         logger.info(
             "Terrain reloaded with view distance {} and {} build threads in {} ms",
             viewDistance,
@@ -92,6 +95,9 @@ object TerrainRenderer {
     @JvmStatic
     fun setup(camera: Entity, x: Double, y: Double, z: Double, tickDelta: Double, frame: Int, spectator: Boolean) {
         val world = world ?: return
+        val now = System.nanoTime()
+        if (lastFrameNanos != 0L) frameNanos += ((now - lastFrameNanos).coerceAtMost(100_000_000L) - frameNanos) * 0.05
+        lastFrameNanos = now
         val minecraft = Minecraft.getInstance()
         val eyeHeight = camera.eyeHeight.toDouble()
         val inOpaque = spectator && world.getBlockState(BlockPos(x, y + eyeHeight, z)).block.isSolidRender
@@ -112,7 +118,8 @@ object TerrainRenderer {
 
     private fun schedule(world: ClientWorld) {
         val room = maxInFlight - inFlight.get()
-        val count = Native.terrainSchedule(scheduled, maxOf(room, 2).coerceAtMost(SCHEDULE_ENTRIES))
+        val affordable = (budgetNanos() / snapshotNanos).toInt().coerceAtLeast(1)
+        val count = Native.terrainSchedule(scheduled, minOf(maxOf(room, 2), affordable).coerceAtMost(SCHEDULE_ENTRIES))
         var urgent = false
         for (i in 0 until count) {
             val at = scheduled + i * 20L
@@ -121,8 +128,10 @@ object TerrainRenderer {
             val z = Memory.getInt(at + 8)
             val version = Memory.getInt(at + 12)
             val now = Memory.getInt(at + 16) != 0
+            val started = System.nanoTime()
             val snapshot = Native.terrainSnapshot()
             val build = SectionBuild(x, y, z, version, generation, Snapshots.fill(snapshot, world, x, y, z, version))
+            snapshotNanos += ((System.nanoTime() - started) - snapshotNanos) * 0.1
             if (now) {
                 runNow(build)
                 urgent = true
@@ -180,7 +189,7 @@ object TerrainRenderer {
             if (build.generation == generation) Native.terrainAbort(build.x, build.y, build.z, build.version)
         }
         RenderChunk.updateCounter += built
-        Native.terrainUpload(UPLOAD_BUDGET, UPLOAD_NANOS)
+        Native.terrainUpload(UPLOAD_BUDGET, budgetNanos())
     }
 
     @JvmStatic

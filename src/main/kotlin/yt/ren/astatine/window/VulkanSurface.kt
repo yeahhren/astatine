@@ -29,8 +29,7 @@ class VulkanSurface : GpuSurface {
             sdl.getFunctionAddress("SDL_Vulkan_DestroySurface"),
             sdl.getFunctionAddress("SDL_Vulkan_GetVkGetInstanceProcAddr"),
             sdl.getFunctionAddress("SDL_GetWindowSizeInPixels"),
-            if (System.getProperty("astatine.presenter") == "vulkan") 0L
-            else SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, 0L),
+            SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, 0L),
             java.lang.Boolean.getBoolean("astatine.validation"),
             cache.toAbsolutePath().toString(),
         )

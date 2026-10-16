@@ -30,7 +30,6 @@ namespace at {
         struct State;
 
     private:
-
         void destroyBuffers();
 
         void waitIdle();

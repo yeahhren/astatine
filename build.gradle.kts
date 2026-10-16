@@ -32,7 +32,10 @@ loom {
     runs {
         named("client") {
             programArgs("--username", "Player", "--accessToken", "0")
-            vmArgs("--enable-native-access=ALL-UNNAMED", "-XX:+UseZGC", "-XX:+UseCompactObjectHeaders")
+            vmArgs(
+                "--enable-native-access=ALL-UNNAMED", "-XX:+UseZGC", "-XX:+UseCompactObjectHeaders",
+                "-Xms4G", "-Xmx4G", "-XX:+AlwaysPreTouch", "-XX:ConcGCThreads=2", // fixes microstutters for me -_-
+            )
         }
     }
 }

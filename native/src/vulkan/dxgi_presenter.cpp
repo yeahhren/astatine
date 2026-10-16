@@ -20,6 +20,7 @@ using Microsoft::WRL::ComPtr;
 
 namespace at {
     static constexpr u32 BUFFER_COUNT = 3;
+    static constexpr u32 MAX_LATENCY = 2;
 
     static void hr(HRESULT result, const char *action) {
         if (FAILED(result)) {
@@ -36,8 +37,8 @@ namespace at {
         ComPtr<ID3D12CommandQueue> queue;
         ComPtr<IDXGISwapChain3> swapchain;
         HANDLE idleEvent = nullptr;
-        bool tearing = false;
         HANDLE waitable = nullptr;
+        bool tearing = false;
         bool vsync = true;
         UINT flags = 0;
 
@@ -63,7 +64,7 @@ namespace at {
         PFN_vkImportSemaphoreWin32HandleKHR importSemaphoreWin32Handle = nullptr;
     };
 
-    static VkSemaphore importFence(const Device &device, const DxgiPresenter::State &state, ID3D12Fence *fence) {
+    static VkSemaphore importFence(const Device &device, DxgiPresenter::State &state, ID3D12Fence *fence) {
         HANDLE handle = nullptr;
         hr(state.d3d->CreateSharedHandle(fence, nullptr, GENERIC_ALL, nullptr, &handle), "CreateSharedHandle");
         VkSemaphoreTypeCreateInfoKHR type{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO_KHR};
@@ -140,7 +141,7 @@ namespace at {
            "CreateSwapChainForHwnd");
         hr(swapchain1.As(&s.swapchain), "IDXGISwapChain3");
         s.factory->MakeWindowAssociation(s.window, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
-        hr(s.swapchain->SetMaximumFrameLatency(2), "SetMaximumFrameLatency");
+        hr(s.swapchain->SetMaximumFrameLatency(MAX_LATENCY), "SetMaximumFrameLatency");
         s.waitable = s.swapchain->GetFrameLatencyWaitableObject();
 
         create(desc.Width, desc.Height, true);
@@ -324,7 +325,8 @@ namespace at {
         HRESULT result = s.swapchain->Present(s.vsync ? 1 : 0, flags);
         if (result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET) hr(result, "Present");
         if (FAILED(result) && flags) {
-            log::warn("Present with tearing failed with HRESULT 0x%08lX, retrying without it", static_cast<unsigned long>(result));
+            log::warn("Present with tearing failed with HRESULT 0x%08lX, retrying without it",
+                      static_cast<unsigned long>(result));
             s.tearing = false;
             result = s.swapchain->Present(0, 0);
         }
