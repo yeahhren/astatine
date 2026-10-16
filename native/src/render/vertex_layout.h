@@ -43,6 +43,9 @@ namespace at {
         u32 registerFormat(const i32 *elements, u32 elementCount, u32 vertexSize);
 
         const VertexLayout &operator[](u32 id) const { return *layouts[id]; }
+        [[nodiscard]] const std::vector<i32> &descriptor(u32 id) const { return descriptors[id]; }
+        [[nodiscard]] u32 count() const { return static_cast<u32>(layouts.size()); }
+        [[nodiscard]] u32 terrainLayout() const { return terrainId; }
         [[nodiscard]] const VertexLayout &terrain() const { return *layouts[terrainId]; }
         [[nodiscard]] const VertexLayout &position() const { return *layouts[positionId]; }
 

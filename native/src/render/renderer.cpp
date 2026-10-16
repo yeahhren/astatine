@@ -118,6 +118,8 @@ namespace at {
         surface = std::make_unique<SurfaceTarget>(device, *context.allocator, system.window, system.windowSize,
                                                   *surfacePass, *presenter);
         target = surface.get();
+        RenderPassType *passes[3] = {offscreenDepthPass.get(), offscreenColorPass.get(), surfacePass.get()};
+        context.pipelines->prewarm(layouts, passes);
         createFrameSet();
         commandBuffer = static_cast<u8 *>(std::calloc(1, COMMAND_BUFFER_SIZE + 64));
         quadIndices = std::make_unique<GpuBuffer>(device, *context.allocator, u64(MAX_QUADS) * 6 * 4 * 2,
@@ -133,9 +135,10 @@ namespace at {
 
     Renderer::~Renderer() {
         Context &context = *contextValue;
+        context.pipelines->stop();
         context.device->waitIdle();
         try {
-            context.pipelines->save();
+            context.pipelines->save(layouts);
         } catch (const std::exception &error) {
             log::warn("Unable to save the pipeline cache: %s", error.what());
         }

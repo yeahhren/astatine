@@ -7,10 +7,15 @@
 #include "vulkan/device.h"
 #include "vulkan/render_pass.h"
 
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <ranges>
 #include <vector>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace at {
     namespace {
@@ -42,6 +47,16 @@ namespace at {
 
     VkShaderModule ShaderLibrary::terrainVertex() {
         return module("terrain_vert");
+    }
+
+    void ShaderLibrary::preload(bool bindless) {
+        for (u32 mask = 0; mask < 16; mask++) {
+            vertex(mask, false);
+            vertex(mask, true);
+        }
+        fragment(false, bindless);
+        fragment(true, bindless);
+        terrainVertex();
     }
 
     VkShaderModule ShaderLibrary::module(const std::string &module_name) {
@@ -144,7 +159,27 @@ namespace at {
         }
     }
 
+    void Pipelines::stop() {
+        {
+            std::lock_guard guard(lock);
+            stopping = true;
+            queue.clear();
+        }
+        queued.notify_all();
+        for (std::thread &worker: workers) {
+            if (worker.joinable()) worker.join();
+        }
+        workers.clear();
+        {
+            std::lock_guard guard(lock);
+            pending.clear();
+        }
+        compiled.notify_all();
+    }
+
     Pipelines::~Pipelines() {
+        stop();
+        integrate();
         pipelines.forEach([&](u64, u64 pipeline) {
             vkDestroyPipeline(device.handle, reinterpret_cast<VkPipeline>(pipeline), nullptr);
         });
@@ -154,7 +189,158 @@ namespace at {
         vkDestroyDescriptorSetLayout(device.handle, textureSetLayout, nullptr);
     }
 
-    void Pipelines::save() const {
+    static constexpr u32 RECIPE_MAGIC = 0x4B504154u;
+    static constexpr u32 RECIPE_VERSION = 1;
+    static constexpr u64 LAYOUT_MASK = (1ull << key::LAYOUT_SHIFT) - 1;
+
+    void Pipelines::prewarm(VertexLayouts &layouts, RenderPassType *const (&passes)[3]) {
+        shaders.preload(device.bindless);
+        for (RenderPassType *pass: passes) pass->compatible();
+
+        std::vector<char> bytes = readFile(cacheFile + ".keys");
+        std::size_t at = 0;
+        auto read = [&](void *out, std::size_t size) {
+            if (at + size > bytes.size()) return false;
+            std::memcpy(out, bytes.data() + at, size);
+            at += size;
+            return true;
+        };
+        u32 magic = 0, version = 0, layoutCount = 0;
+        if (!read(&magic, 4) || !read(&version, 4) || magic != RECIPE_MAGIC || version != RECIPE_VERSION ||
+            !read(&layoutCount, 4))
+            return;
+        std::vector<u32> remap(layoutCount, ~0u);
+        for (u32 i = 0; i < layoutCount; i++) {
+            u32 length = 0;
+            if (!read(&length, 4) || length > 4096) return;
+            std::vector<i32> descriptor(length);
+            if (length && !read(descriptor.data(), length * 4)) return;
+            if (descriptor.empty()) {
+                remap[i] = layouts.terrainLayout();
+            } else if ((descriptor.size() - 1) % 5 == 0) {
+                remap[i] = layouts.registerFormat(descriptor.data(), static_cast<u32>((descriptor.size() - 1) / 5),
+                                                  static_cast<u32>(descriptor.back()));
+            }
+        }
+        u32 entryCount = 0;
+        if (!read(&entryCount, 4)) return;
+        std::vector<Recipe> recipes;
+        recipes.reserve(entryCount);
+        for (u32 i = 0; i < entryCount; i++) {
+            u64 stored = 0;
+            if (!read(&stored, 8)) break;
+            u32 layoutIndex = static_cast<u32>(stored >> key::LAYOUT_SHIFT);
+            u32 passIndex = key::field(stored, key::PASS_SHIFT, 2);
+            if (layoutIndex >= layoutCount || remap[layoutIndex] == ~0u || passIndex > 2) continue;
+            u64 runtime = (stored & LAYOUT_MASK) | (static_cast<u64>(remap[layoutIndex]) << key::LAYOUT_SHIFT);
+            recipes.push_back({runtime, &layouts[remap[layoutIndex]], passes[passIndex]});
+        }
+        if (recipes.empty()) return;
+
+        {
+            std::lock_guard guard(lock);
+            for (const Recipe &recipe: recipes) {
+                if (!pending.insert(recipe.key).second) continue;
+                queue.push_back(recipe);
+                if (knownSet.insert(recipe.key).second) known.push_back(recipe.key);
+            }
+        }
+        u32 threads = std::clamp(std::thread::hardware_concurrency() / 4, 1u, 4u);
+        for (u32 i = 0; i < threads; i++) {
+            workers.emplace_back([this] { work(); });
+#ifdef _WIN32
+            SetThreadPriority(workers.back().native_handle(), THREAD_PRIORITY_BELOW_NORMAL);
+#endif
+        }
+        log::info("Compiling %zu recorded pipelines on %u threads", recipes.size(), threads);
+    }
+
+    void Pipelines::work() {
+        while (true) {
+            Recipe recipe{};
+            {
+                std::unique_lock guard(lock);
+                queued.wait(guard, [this] { return stopping || !queue.empty(); });
+                if (stopping) return;
+                recipe = queue.front();
+                queue.pop_front();
+            }
+            VkPipeline pipeline = VK_NULL_HANDLE;
+            try {
+                pipeline = compile(recipe.key, *recipe.layout, *recipe.pass);
+            } catch (const std::exception &error) {
+                log::warn("Unable to precompile a pipeline: %s", error.what());
+            }
+            {
+                std::lock_guard guard(lock);
+                pending.erase(recipe.key);
+                if (pipeline) {
+                    ready.emplace_back(recipe.key, pipeline);
+                    hasReady.store(true, std::memory_order_release);
+                }
+            }
+            compiled.notify_all();
+        }
+    }
+
+    void Pipelines::integrate() {
+        if (!hasReady.load(std::memory_order_acquire)) return;
+        std::vector<std::pair<u64, VkPipeline> > finished;
+        {
+            std::lock_guard guard(lock);
+            finished.swap(ready);
+            hasReady.store(false, std::memory_order_relaxed);
+        }
+        for (const auto &[key, pipeline]: finished) {
+            if (pipelines.get(key) != 0) {
+                vkDestroyPipeline(device.handle, pipeline, nullptr);
+                continue;
+            }
+            pipelines.put(key, reinterpret_cast<u64>(pipeline));
+        }
+    }
+
+    void Pipelines::save(const VertexLayouts &layouts) const {
+        std::vector<u64> keys;
+        {
+            std::lock_guard guard(lock);
+            keys = known;
+        }
+        std::vector<u32> used;
+        std::vector<u32> index(layouts.count(), ~0u);
+        std::vector<u64> stored;
+        stored.reserve(keys.size());
+        for (u64 runtime: keys) {
+            u32 layoutId = static_cast<u32>(runtime >> key::LAYOUT_SHIFT);
+            if (layoutId >= layouts.count()) continue;
+            if (index[layoutId] == ~0u) {
+                index[layoutId] = static_cast<u32>(used.size());
+                used.push_back(layoutId);
+            }
+            stored.push_back((runtime & LAYOUT_MASK) | (static_cast<u64>(index[layoutId]) << key::LAYOUT_SHIFT));
+        }
+        std::vector<char> out;
+        auto write = [&](const void *data, std::size_t size) {
+            const char *bytes = static_cast<const char *>(data);
+            out.insert(out.end(), bytes, bytes + size);
+        };
+        u32 header[3] = {RECIPE_MAGIC, RECIPE_VERSION, static_cast<u32>(used.size())};
+        write(header, sizeof(header));
+        for (u32 layoutId: used) {
+            const std::vector<i32> &descriptor = layouts.descriptor(layoutId);
+            auto length = static_cast<u32>(descriptor.size());
+            write(&length, 4);
+            if (length) write(descriptor.data(), length * 4);
+        }
+        auto entries = static_cast<u32>(stored.size());
+        write(&entries, 4);
+        if (entries) write(stored.data(), stored.size() * 8);
+        std::error_code keysError;
+        std::filesystem::path keysPath(cacheFile + ".keys");
+        std::filesystem::create_directories(keysPath.parent_path(), keysError);
+        std::ofstream keysStream(keysPath, std::ios::binary | std::ios::trunc);
+        keysStream.write(out.data(), static_cast<std::streamsize>(out.size()));
+
         std::size_t size = 0;
         check(vkGetPipelineCacheData(device.handle, cache, &size, nullptr), "vkGetPipelineCacheData");
         std::vector<char> bytes(size);
@@ -167,6 +353,25 @@ namespace at {
     }
 
     VkPipeline Pipelines::create(u64 key, const VertexLayout &vertexLayout, RenderPassType &pass) {
+        integrate();
+        if (u64 found = pipelines.get(key)) return reinterpret_cast<VkPipeline>(found);
+        {
+            std::unique_lock guard(lock);
+            if (pending.contains(key)) {
+                compiled.wait(guard, [&] { return !pending.contains(key); });
+            }
+        }
+        integrate();
+        if (u64 found = pipelines.get(key)) return reinterpret_cast<VkPipeline>(found);
+        pass.compatible();
+        VkPipeline pipeline = compile(key, vertexLayout, pass);
+        pipelines.put(key, reinterpret_cast<u64>(pipeline));
+        std::lock_guard guard(lock);
+        if (knownSet.insert(key).second) known.push_back(key);
+        return pipeline;
+    }
+
+    VkPipeline Pipelines::compile(u64 key, const VertexLayout &vertexLayout, RenderPassType &pass) const {
         bool flat = key::has(key, key::FLAT) && !vertexLayout.terrain;
         u32 topology = key::field(key, key::TOPOLOGY_SHIFT, 3);
 
@@ -286,7 +491,6 @@ namespace at {
         VkPipeline pipeline;
         check(vkCreateGraphicsPipelines(device.handle, cache, 1, &info, nullptr, &pipeline),
               "vkCreateGraphicsPipelines");
-        pipelines.put(key, reinterpret_cast<u64>(pipeline));
         return pipeline;
     }
 } // namespace at
