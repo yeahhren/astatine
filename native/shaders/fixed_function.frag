@@ -55,6 +55,7 @@ bool passes(int function, float alpha, float reference) {
 }
 
 void main() {
+    environmentIndex = vTextures.w;
     int flags = environment.flags.x;
     int textureFlags = vTextures.z;
     vec4 color = vColor;

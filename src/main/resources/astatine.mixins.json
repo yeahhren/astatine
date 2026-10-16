@@ -5,6 +5,7 @@
   "compatibilityLevel": "JAVA_8",
   "client": [
     "client.CameraMixin",
+    "client.ClientPlayerInteractionManagerMixin",
     "client.CrashReportMixin",
     "client.GameRendererMixin",
     "client.GlQueryMixin",

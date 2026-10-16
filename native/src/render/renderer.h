@@ -82,6 +82,7 @@ namespace at {
         static constexpr u32 FRAMES = 2;
         static constexpr u64 STREAM_SIZE = 32ull << 20;
         static constexpr u64 RECORDS_PER_FRAME = 1ull << 16;
+        static constexpr u64 ENVIRONMENTS_PER_FRAME = 1ull << 13;
         static constexpr u64 SECTIONS_PER_FRAME = 1ull << 19;
         static constexpr u32 MAX_QUADS = 1u << 16;
         static constexpr u32 BATCH_SIZE = 4096;
@@ -147,6 +148,10 @@ namespace at {
         void publish();
 
         void waitIdle();
+
+        void beginCapture();
+
+        void endCapture();
 
         void finishFrame();
 
@@ -235,7 +240,41 @@ namespace at {
 
         void resolveTextures();
 
-        void bindEnvironment(u64 offset);
+        i32 allocateEnvironment(EnvironmentBlock *&block);
+
+        struct Packet {
+            VkPipeline pipeline;
+            VkBuffer buffers[2];
+            u64 offsets[2];
+            u32 indexCount;
+            u32 vertexOffset;
+            u32 record;
+            u32 dynamic;
+            bool flat;
+            bool ordered;
+        };
+
+        struct DynamicState {
+            VkViewport viewport;
+            float lineWidth;
+            float biasUnits;
+            float biasFactor;
+        };
+
+        void capture(const VertexLayout &layout, u32 topology, VkBuffer first, u64 firstOffset, VkBuffer second,
+                     u64 secondOffset, u32 firstVertex, u32 vertices, bool flat);
+
+        DynamicState currentDynamicState() const;
+
+        void emitPackets();
+
+        void submitBatch();
+
+        bool capturing = false;
+        bool emitting = false;
+        std::vector<Packet> packets;
+        std::vector<DynamicState> dynamicStates;
+        std::vector<u32> packetOrder;
 
         void bindPipeline(VkPipeline pipeline);
 
@@ -270,6 +309,7 @@ namespace at {
         std::unique_ptr<FrameStream> stream;
         std::unique_ptr<FrameStream> records;
         std::unique_ptr<FrameStream> sections;
+        std::unique_ptr<FrameStream> environments;
         std::unique_ptr<GpuBuffer> quadIndices;
         std::unique_ptr<class Texture> fallback;
         struct Chunk {
@@ -331,6 +371,7 @@ namespace at {
         PrimitivePlan plan;
         VkPipeline boundPipeline = VK_NULL_HANDLE;
         i64 recordIndex = -1;
+        i32 currentEnvironment = 0;
         u32 textureFlags = 0;
         u64 textureHandles[2] = {~0ull, ~0ull};
         u64 boundSets[2] = {};
@@ -340,7 +381,25 @@ namespace at {
         u64 boundIndexOffset = ~0ull;
 
         u32 batchCount = 0;
-        GeometryPool *batchPool = nullptr;
+        const void *batchSource = nullptr;
+
+        struct ImmediateRegion {
+            u32 layout = ~0u;
+            u64 serial = 0;
+            u64 positions = 0;
+            u64 attributes = 0;
+            u32 capacity = 0;
+            u32 used = 0;
+        };
+
+        static constexpr u32 REGION_MIN_VERTICES = 1024;
+        static constexpr u32 REGION_MAX_VERTICES = 65536;
+        static constexpr u32 REGION_SLOTS = 16;
+        ImmediateRegion regions[REGION_SLOTS];
+        u64 regionUses[REGION_SLOTS] = {};
+        u64 regionClock = 0;
+
+        bool drawBatched(const VertexLayout &layout, const u8 *source);
         bool batchFlat = false;
         u32 batchIndexCounts[BATCH_SIZE];
         u32 batchVertexOffsets[BATCH_SIZE];

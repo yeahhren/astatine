@@ -169,6 +169,16 @@ public abstract class WorldRendererMixin {
 		TerrainRenderer.markImportant(x, y, z);
 	}
 
+	@Inject(method = "renderEntities", at = @At("HEAD"))
+	private void astatine$beginEntities(Entity camera, Culler culler, float tickDelta, CallbackInfo callback) {
+		Native.beginCapture();
+	}
+
+	@Inject(method = "renderEntities", at = @At("RETURN"))
+	private void astatine$endEntities(Entity camera, Culler culler, float tickDelta, CallbackInfo callback) {
+		Native.endCapture();
+	}
+
 	@Inject(
 		method = "renderEntities",
 		at = @At(value = "INVOKE_STRING", target = "Lnet/minecraft/util/profiler/Profiler;swap(Ljava/lang/String;)V", args = "ldc=blockentities")

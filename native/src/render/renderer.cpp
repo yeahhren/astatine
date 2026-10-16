@@ -99,7 +99,7 @@ namespace at {
         for (u32 i = 0; i < FRAMES; i++) frames.push_back(std::make_unique<FrameResources>(device));
         stream = std::make_unique<FrameStream>(device, *context.allocator, STREAM_SIZE, FRAMES,
                                                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-                                               VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
+                                               VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
                                                |
                                                VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
         records = std::make_unique<FrameStream>(device, *context.allocator, RECORDS_PER_FRAME * sizeof(DrawRecord),
@@ -108,6 +108,9 @@ namespace at {
         sections = std::make_unique<FrameStream>(device, *context.allocator, SECTIONS_PER_FRAME * sizeof(SectionDraw),
                                                  FRAMES,
                                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        environments = std::make_unique<FrameStream>(device, *context.allocator,
+                                                     ENVIRONMENTS_PER_FRAME * sizeof(EnvironmentBlock), FRAMES,
+                                                     VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         offscreenDepthPass = std::make_unique<RenderPassType>(device, RenderPassType::Kind::Offscreen, 0,
                                                               VK_FORMAT_B8G8R8A8_UNORM,
                                                               device.depthFormat);
@@ -164,6 +167,7 @@ namespace at {
         stream.reset();
         records.reset();
         sections.reset();
+        environments.reset();
         vkDestroyDescriptorPool(context.device->handle, framePool, nullptr);
         surface.reset();
         presenter.reset();
@@ -254,9 +258,99 @@ namespace at {
         if (masked) clearMasked();
     }
 
+    bool Renderer::drawBatched(const VertexLayout &layout, const u8 *source) {
+        u32 vertices = plan.vertexCount;
+        if (vertices == 0 || vertices > REGION_MAX_VERTICES) return false;
+        ensureRecording();
+        reserve(0);
+        ImmediateRegion *region = nullptr;
+        u32 grown = REGION_MIN_VERTICES;
+        for (ImmediateRegion &candidate: regions) {
+            if (candidate.layout != layout.id || candidate.serial != serial) continue;
+            if (candidate.capacity - candidate.used >= vertices) {
+                region = &candidate;
+                break;
+            }
+            grown = std::max(grown, std::min(candidate.capacity * 2, REGION_MAX_VERTICES));
+        }
+        if (!region) {
+            u32 capacity = std::max(grown, vertices);
+            u64 positionBytes = layout.positionBytes(capacity);
+            u64 attributeBytes = layout.attributeBytes(capacity);
+            reserve(positionBytes + attributeBytes + 64);
+            u32 victim = 0;
+            for (u32 slot = 0; slot < REGION_SLOTS; slot++) {
+                if (regions[slot].serial != serial) {
+                    victim = slot;
+                    break;
+                }
+                if (regionUses[slot] < regionUses[victim]) victim = slot;
+            }
+            region = &regions[victim];
+            if (!capturing && batchSource == region) flushBatch();
+            u64 positions = positionBytes > 0 ? stream->allocate(positionBytes, 16) : 0;
+            u64 attributes = attributeBytes > 0 ? stream->allocate(attributeBytes, 16) : 0;
+            if (positions == FrameStream::FAILED || attributes == FrameStream::FAILED) {
+                *region = ImmediateRegion{};
+                return false;
+            }
+            *region = ImmediateRegion{layout.id, serial, positions, attributes, capacity, 0};
+        }
+        regionUses[region - regions] = ++regionClock;
+        if (!beginPass()) return true;
+        u32 first = region->used;
+        u8 *positionAddress = layout.split
+                                  ? stream->address(region->positions) + static_cast<u64>(first) * VertexLayout::POSITION_SIZE
+                                  : nullptr;
+        u8 *attributeAddress = region->attributes || !layout.split
+                                   ? stream->address(region->attributes) + static_cast<u64>(first) * layout.attributeStride
+                                   : nullptr;
+        layout.write(source, positionAddress, attributeAddress, vertices);
+        region->used += vertices;
+
+        bool flat = state.flatShading;
+        if (capturing) {
+            VkBuffer buffer = stream->handle();
+            if (layout.split) {
+                capture(layout, plan.topology, buffer, region->positions,
+                        layout.attributeStride > 0 ? buffer : VK_NULL_HANDLE, region->attributes, first, vertices,
+                        flat);
+            } else {
+                capture(layout, plan.topology, buffer, region->attributes, VK_NULL_HANDLE, 0, first, vertices, flat);
+            }
+            return true;
+        }
+        bindState(layout, plan.topology);
+        u32 drawRecord = record();
+        if (batchSource != region || batchFlat != flat) {
+            flushBatch();
+            batchSource = region;
+            batchFlat = flat;
+        }
+        VkBuffer buffer = stream->handle();
+        if (layout.split) {
+            setVertexBuffers(buffer, region->positions, layout.attributeStride > 0 ? buffer : VK_NULL_HANDLE,
+                             region->attributes);
+        } else {
+            setVertexBuffers(buffer, region->attributes, VK_NULL_HANDLE, 0);
+        }
+        u32 quads = vertices / 4;
+        for (u32 quad = 0; quad < quads;) {
+            u32 run = std::min(MAX_QUADS, quads - quad);
+            if (batchCount == BATCH_SIZE) flushBatch();
+            batchIndexCounts[batchCount] = run * 6;
+            batchVertexOffsets[batchCount] = first + quad * 4;
+            batchRecords[batchCount] = drawRecord;
+            batchCount++;
+            quad += run;
+        }
+        return true;
+    }
+
     void Renderer::draw(u32 layoutId, i32 mode, const u8 *source, u32 count) {
         const VertexLayout &layout = layouts[layoutId];
         if (!plan.plan(mode, count, state.flatShading)) return;
+        if (plan.indexing == PrimitivePlan::QUADS && drawBatched(layout, source)) return;
         u32 vertices = plan.vertexCount;
         u64 positionBytes = layout.positionBytes(vertices);
         u64 attributeBytes = layout.attributeBytes(vertices);
@@ -293,11 +387,23 @@ namespace at {
         ensureRecording();
         reserve(0);
         if (!beginPass()) return;
+        if (capturing) {
+            const GeometryPool *pool = mesh->pool;
+            if (pool->positions) {
+                capture(*mesh->layout, plan.topology, pool->positions->handle, 0,
+                        pool->attributes ? pool->attributes->handle : VK_NULL_HANDLE, 0, mesh->firstVertex,
+                        plan.vertexCount, flat);
+            } else {
+                capture(*mesh->layout, plan.topology, pool->attributes->handle, 0, VK_NULL_HANDLE, 0,
+                        mesh->firstVertex, plan.vertexCount, flat);
+            }
+            return;
+        }
         bindState(*mesh->layout, plan.topology);
         u32 drawRecord = record();
-        if (batchPool != mesh->pool || batchFlat != flat) {
+        if (batchSource != mesh->pool || batchFlat != flat) {
             flushBatch();
-            batchPool = mesh->pool;
+            batchSource = mesh->pool;
             batchFlat = flat;
         }
         bindMesh(mesh->pool);
@@ -560,6 +666,7 @@ namespace at {
         stream->begin(frameIndex);
         records->begin(frameIndex);
         sections->begin(frameIndex);
+        environments->begin(frameIndex);
         setup = frame->setup;
         main = frame->main;
         surface->acquireSemaphore = frame->imageAvailable;
@@ -580,9 +687,11 @@ namespace at {
         boundIndexBuffer = VK_NULL_HANDLE;
         boundIndexOffset = ~0ull;
         batchCount = 0;
-        batchPool = nullptr;
+        batchSource = nullptr;
         state.dirty = RenderState::ALL;
         Context &context = *contextValue;
+        vkCmdBindDescriptorSets(main, VK_PIPELINE_BIND_POINT_GRAPHICS, context.pipelines->layout, 0, 1, &frameSet, 0,
+                                nullptr);
         if (context.textures->bindless()) {
             VkDescriptorSet set = static_cast<BindlessTextureTable *>(context.textures.get())->set;
             vkCmdBindDescriptorSets(main, VK_PIPELINE_BIND_POINT_GRAPHICS, context.pipelines->layout, 1, 1, &set, 0,
@@ -659,10 +768,10 @@ namespace at {
 
     void Renderer::reserve(u64 bytes, u64 sectionBytes) {
         ensureRecording();
-        u64 room = bytes + sizeof(EnvironmentBlock) + contextValue->device->uniformAlignment * 2 + 64ull *
-                   INDIRECT_STRIDE * 4;
+        u64 room = bytes + 64ull * INDIRECT_STRIDE * 4 + 64;
         if (stream->remaining(16) < room || records->remaining(sizeof(DrawRecord)) < sizeof(DrawRecord) * 2 ||
-            sections->remaining(sizeof(SectionDraw)) < sectionBytes) {
+            sections->remaining(sizeof(SectionDraw)) < sectionBytes ||
+            environments->remaining(sizeof(EnvironmentBlock)) < sizeof(EnvironmentBlock) * 2) {
             flush();
         }
     }
@@ -757,9 +866,8 @@ namespace at {
         u64 positions = stream->allocate(48, 16);
         constexpr float corners[12] = {-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, 1, 0};
         std::memcpy(stream->address(positions), corners, sizeof(corners));
-        Device &device = *contextValue->device;
-        u64 environment = stream->allocate(sizeof(EnvironmentBlock), device.uniformAlignment);
-        auto *block = reinterpret_cast<EnvironmentBlock *>(stream->address(environment));
+        EnvironmentBlock *block;
+        i32 environment = allocateEnvironment(block);
         std::memset(block, 0, sizeof(EnvironmentBlock));
         constexpr float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0.5f, 0, 0, 0, 0.5f, 1};
         std::memcpy(block->projection, identity, sizeof(identity));
@@ -768,18 +876,18 @@ namespace at {
         std::memset(drawRecord, 0, sizeof(DrawRecord));
         mat4::identity(drawRecord->modelView);
         std::memcpy(drawRecord->color, clearColorValue, sizeof(clearColorValue));
+        drawRecord->textures[3] = environment;
         u64 pipelineKey = key::draw(
             (static_cast<u64>(VK_COMPARE_OP_ALWAYS) << key::COMPARE_SHIFT) | (
                 static_cast<u64>(state.colorMaskValue) << key::COLOR_MASK_SHIFT),
             VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP, target->pass.id, layout.id);
         resolveTextures();
         bindPipeline(contextValue->pipelines->get(pipelineKey, layout, target->pass));
-        bindEnvironment(environment);
         VkViewport viewport{0, 0, static_cast<float>(target->width()), static_cast<float>(target->height()), 0, 1};
         vkCmdSetViewport(main, 0, 1, &viewport);
         setVertexBuffers(stream->handle(), positions, VK_NULL_HANDLE, 0);
         vkCmdDraw(main, 4, 1, 0, static_cast<u32>(recordOffset / sizeof(DrawRecord)));
-        state.dirty |= RenderState::ENVIRONMENT | RenderState::VIEWPORT | RenderState::LINE_WIDTH |
+        state.dirty |= RenderState::VIEWPORT | RenderState::LINE_WIDTH |
                 RenderState::DEPTH_BIAS;
     }
 
@@ -794,10 +902,10 @@ namespace at {
         Context &context = *contextValue;
         if (state.dirty & RenderState::TEXTURES) resolveTextures();
         if (state.dirty & RenderState::ENVIRONMENT) {
-            flushBatch();
-            u64 offset = stream->allocate(sizeof(EnvironmentBlock), context.device->uniformAlignment);
-            writeEnvironment(reinterpret_cast<EnvironmentBlock *>(stream->address(offset)), target->pass.flipY());
-            bindEnvironment(offset);
+            EnvironmentBlock *block;
+            currentEnvironment = allocateEnvironment(block);
+            writeEnvironment(block, target->pass.flipY());
+            recordIndex = -1;
             state.dirty &= ~RenderState::ENVIRONMENT;
         }
         u64 pipelineKey = key::draw(state.pipelineState(), topology, target->pass.id, layout.id);
@@ -869,11 +977,10 @@ namespace at {
         return static_cast<u32>(recordIndex);
     }
 
-    void Renderer::bindEnvironment(u64 offset) {
-        flushBatch();
-        u32 dynamicOffset = static_cast<u32>(offset);
-        vkCmdBindDescriptorSets(main, VK_PIPELINE_BIND_POINT_GRAPHICS, contextValue->pipelines->layout, 0, 1, &frameSet,
-                                1, &dynamicOffset);
+    i32 Renderer::allocateEnvironment(EnvironmentBlock *&block) {
+        u64 offset = environments->allocate(sizeof(EnvironmentBlock), sizeof(EnvironmentBlock));
+        block = reinterpret_cast<EnvironmentBlock *>(environments->address(offset));
+        return static_cast<i32>(offset / sizeof(EnvironmentBlock));
     }
 
     void Renderer::bindPipeline(VkPipeline pipeline) {
@@ -941,7 +1048,146 @@ namespace at {
         }
     }
 
+    void Renderer::beginCapture() {
+        ensureRecording();
+        flushBatch();
+        capturing = contextValue->textures->bindless();
+    }
+
+    void Renderer::endCapture() {
+        if (!capturing) return;
+        flushBatch();
+        capturing = false;
+    }
+
+    Renderer::DynamicState Renderer::currentDynamicState() const {
+        DynamicState dynamic{};
+        i32 width = std::max(state.viewportWidth, 1);
+        i32 height = std::max(state.viewportHeight, 1);
+        i32 y = target->pass.flipY() ? static_cast<i32>(target->height()) - (state.viewportY + height) : state.viewportY;
+        dynamic.viewport = {
+            static_cast<float>(state.viewportX), static_cast<float>(y), static_cast<float>(width),
+            static_cast<float>(height), 0.0f, 1.0f
+        };
+        Device &device = *contextValue->device;
+        dynamic.lineWidth = device.wideLines ? clamp(state.lineWidthValue, 1.0f, device.lineWidthMax) : 1.0f;
+        dynamic.biasUnits = state.offsetUnits;
+        dynamic.biasFactor = state.offsetFactor;
+        return dynamic;
+    }
+
+    void Renderer::capture(const VertexLayout &layout, u32 topology, VkBuffer first, u64 firstOffset, VkBuffer second,
+                           u64 secondOffset, u32 firstVertex, u32 vertices, bool flat) {
+        Context &context = *contextValue;
+        if (state.dirty & RenderState::TEXTURES) resolveTextures();
+        if (state.dirty & RenderState::ENVIRONMENT) {
+            EnvironmentBlock *block;
+            currentEnvironment = allocateEnvironment(block);
+            writeEnvironment(block, target->pass.flipY());
+            recordIndex = -1;
+            state.dirty &= ~RenderState::ENVIRONMENT;
+        }
+        u64 pipelineState = state.pipelineState();
+        VkPipeline pipeline = context.pipelines->get(key::draw(pipelineState, topology, target->pass.id, layout.id),
+                                                     layout, target->pass);
+        constexpr u32 DYNAMIC = RenderState::VIEWPORT | RenderState::LINE_WIDTH | RenderState::DEPTH_BIAS;
+        if (dynamicStates.empty() || (state.dirty & DYNAMIC)) {
+            DynamicState dynamic = currentDynamicState();
+            if (dynamicStates.empty() || std::memcmp(&dynamicStates.back(), &dynamic, sizeof(DynamicState)) != 0) {
+                dynamicStates.push_back(dynamic);
+            }
+        }
+        state.dirty &= ~(DYNAMIC | RenderState::PIPELINE);
+        u32 drawRecord = record();
+        u32 compare = static_cast<u32>(pipelineState >> key::COMPARE_SHIFT) & 7;
+        bool ordered = (pipelineState & (key::BLEND | key::LOGIC_OP)) != 0 ||
+                       (pipelineState & key::DEPTH_TEST) == 0 || (pipelineState & key::DEPTH_WRITE) == 0 ||
+                       compare == static_cast<u32>(0x0202 - gl::NEVER);
+        u32 dynamicIndex = static_cast<u32>(dynamicStates.size() - 1);
+        u32 quads = vertices / 4;
+        for (u32 quad = 0; quad < quads;) {
+            u32 run = std::min(MAX_QUADS, quads - quad);
+            packets.push_back({
+                pipeline, {first, second}, {firstOffset, second ? secondOffset : 0}, run * 6, firstVertex + quad * 4,
+                drawRecord, dynamicIndex, flat, ordered
+            });
+            quad += run;
+        }
+    }
+
+    void Renderer::emitPackets() {
+        emitting = true;
+        submitBatch();
+        u32 count = static_cast<u32>(packets.size());
+        packetOrder.clear();
+        for (u32 i = 0; i < count; i++) {
+            if (!packets[i].ordered) packetOrder.push_back(i);
+        }
+        std::stable_sort(packetOrder.begin(), packetOrder.end(), [this](u32 left, u32 right) {
+            const Packet &a = packets[left];
+            const Packet &b = packets[right];
+            auto handle = [](auto value) { return reinterpret_cast<std::uintptr_t>(value); };
+            if (a.pipeline != b.pipeline) return handle(a.pipeline) < handle(b.pipeline);
+            if (a.dynamic != b.dynamic) return a.dynamic < b.dynamic;
+            if (a.buffers[0] != b.buffers[0]) return handle(a.buffers[0]) < handle(b.buffers[0]);
+            if (a.offsets[0] != b.offsets[0]) return a.offsets[0] < b.offsets[0];
+            if (a.buffers[1] != b.buffers[1]) return handle(a.buffers[1]) < handle(b.buffers[1]);
+            if (a.offsets[1] != b.offsets[1]) return a.offsets[1] < b.offsets[1];
+            return a.flat < b.flat;
+        });
+        for (u32 i = 0; i < count; i++) {
+            if (packets[i].ordered) packetOrder.push_back(i);
+        }
+        u32 boundDynamic = ~0u;
+        for (u32 index: packetOrder) {
+            const Packet &packet = packets[index];
+            if (packet.pipeline != boundPipeline) {
+                submitBatch();
+                vkCmdBindPipeline(main, VK_PIPELINE_BIND_POINT_GRAPHICS, packet.pipeline);
+                boundPipeline = packet.pipeline;
+            }
+            if (packet.dynamic != boundDynamic) {
+                submitBatch();
+                const DynamicState &dynamic = dynamicStates[packet.dynamic];
+                vkCmdSetViewport(main, 0, 1, &dynamic.viewport);
+                vkCmdSetLineWidth(main, dynamic.lineWidth);
+                vkCmdSetDepthBias(main, dynamic.biasUnits, 0.0f, dynamic.biasFactor);
+                boundDynamic = packet.dynamic;
+            }
+            u32 bufferCount = packet.buffers[1] ? 2 : 1;
+            if (boundVertexBuffers[0] != packet.buffers[0] || boundVertexOffsets[0] != packet.offsets[0] ||
+                (bufferCount == 2 && (boundVertexBuffers[1] != packet.buffers[1] ||
+                                      boundVertexOffsets[1] != packet.offsets[1]))) {
+                submitBatch();
+                VkDeviceSize offsets[2] = {packet.offsets[0], packet.offsets[1]};
+                vkCmdBindVertexBuffers(main, 0, bufferCount, packet.buffers, offsets);
+                boundVertexBuffers[0] = packet.buffers[0];
+                boundVertexOffsets[0] = packet.offsets[0];
+                boundVertexBuffers[1] = packet.buffers[1];
+                boundVertexOffsets[1] = packet.offsets[1];
+            }
+            if (batchCount > 0 && batchFlat != packet.flat) submitBatch();
+            if (batchCount == BATCH_SIZE) submitBatch();
+            batchFlat = packet.flat;
+            batchIndexCounts[batchCount] = packet.indexCount;
+            batchVertexOffsets[batchCount] = packet.vertexOffset;
+            batchRecords[batchCount] = packet.record;
+            batchCount++;
+        }
+        submitBatch();
+        packets.clear();
+        dynamicStates.clear();
+        batchSource = nullptr;
+        state.dirty |= RenderState::VIEWPORT | RenderState::LINE_WIDTH | RenderState::DEPTH_BIAS;
+        emitting = false;
+    }
+
     void Renderer::flushBatch() {
+        if (!packets.empty() && !emitting) emitPackets();
+        submitBatch();
+    }
+
+    void Renderer::submitBatch() {
         u32 count = batchCount;
         if (count == 0) return;
         batchCount = 0;
@@ -1000,13 +1246,12 @@ namespace at {
     void Renderer::createFrameSet() {
         Context &context = *contextValue;
         VkDevice device = context.device->handle;
-        VkDescriptorPoolSize sizes[2] = {
-            {.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, .descriptorCount = 1},
-            {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 2}
+        VkDescriptorPoolSize sizes[1] = {
+            {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 3}
         };
         VkDescriptorPoolCreateInfo poolInfo{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         poolInfo.maxSets = 1;
-        poolInfo.poolSizeCount = 2;
+        poolInfo.poolSizeCount = 1;
         poolInfo.pPoolSizes = sizes;
         check(vkCreateDescriptorPool(device, &poolInfo, nullptr, &framePool), "vkCreateDescriptorPool");
         VkDescriptorSetAllocateInfo allocateInfo{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
@@ -1014,7 +1259,7 @@ namespace at {
         allocateInfo.descriptorSetCount = 1;
         allocateInfo.pSetLayouts = &context.pipelines->frameSetLayout;
         check(vkAllocateDescriptorSets(device, &allocateInfo, &frameSet), "vkAllocateDescriptorSets");
-        VkDescriptorBufferInfo environment{.buffer = stream->handle(), .offset = 0, .range = sizeof(EnvironmentBlock)};
+        VkDescriptorBufferInfo environment{.buffer = environments->handle(), .offset = 0, .range = VK_WHOLE_SIZE};
         VkDescriptorBufferInfo draws{.buffer = records->handle(), .offset = 0, .range = VK_WHOLE_SIZE};
         VkDescriptorBufferInfo terrainSections{.buffer = sections->handle(), .offset = 0, .range = VK_WHOLE_SIZE};
         VkWriteDescriptorSet writes[3]{};
@@ -1024,7 +1269,7 @@ namespace at {
             writes[i].dstBinding = i;
             writes[i].descriptorCount = 1;
         }
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         writes[0].pBufferInfo = &environment;
         writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         writes[1].pBufferInfo = &draws;
@@ -1170,6 +1415,6 @@ namespace at {
         drawRecord->textures[0] = texture0;
         drawRecord->textures[1] = texture1;
         drawRecord->textures[2] = static_cast<i32>(flags);
-        drawRecord->textures[3] = 0;
+        drawRecord->textures[3] = currentEnvironment;
     }
 } // namespace at

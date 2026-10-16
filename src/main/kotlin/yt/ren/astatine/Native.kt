@@ -30,6 +30,12 @@ object Native {
     external fun setVsync(enabled: Boolean)
 
     @JvmStatic
+    external fun beginCapture()
+
+    @JvmStatic
+    external fun endCapture()
+
+    @JvmStatic
     external fun deviceName(): String
 
     @JvmStatic

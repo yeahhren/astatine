@@ -77,7 +77,7 @@ namespace at {
     static VkDescriptorSetLayout createFrameSetLayout(const Device &device) {
         VkDescriptorSetLayoutBinding bindings[3]{};
         bindings[0].binding = 0;
-        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         bindings[0].descriptorCount = 1;
         bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
         bindings[1].binding = 1;

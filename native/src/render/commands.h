@@ -70,6 +70,8 @@ namespace at::op {
         TERRAIN_UPLOAD = 113,
         TERRAIN_SORT = 114,
         TERRAIN_DRAW = 115,
+        BEGIN_CAPTURE = 116,
+        END_CAPTURE = 117,
     };
 
     constexpr u32 HEADER = 16;

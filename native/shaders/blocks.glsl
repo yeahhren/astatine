@@ -1,4 +1,4 @@
-layout(set = 0, binding = 0, std140) uniform Environment {
+struct Environment {
     mat4 projection;
     mat4 textureMatrix0;
     mat4 textureMatrix1;
@@ -14,7 +14,14 @@ layout(set = 0, binding = 0, std140) uniform Environment {
     vec4 texGenPlanes[4];
     ivec4 flags;
     vec4 alphaReference;
-} environment;
+};
+
+layout(set = 0, binding = 0, std430) readonly buffer Environments {
+    Environment environments[];
+};
+
+int environmentIndex = 0;
+#define environment environments[environmentIndex]
 
 struct Draw {
     mat4 modelView;

@@ -25,6 +25,7 @@ void main() {
     uint slot = (inVertex.x >> 30) | ((inVertex.y >> 30) << 2) | (((inVertex.z >> 27) & 31u) << 4) | ((inVertex.w >> 24) << 9);
     uvec4 section = sections[uint(gl_InstanceIndex) + slot];
     Draw draw = draws[section.w];
+    environmentIndex = draw.textures.w;
     vec3 local = vec3(position) * POSITION_SCALE - POSITION_OFFSET;
     local = (local - 8.0) * 1.000001 + 8.0;
     vec4 eye = draw.modelView * vec4(local + uintBitsToFloat(section.xyz), 1.0);

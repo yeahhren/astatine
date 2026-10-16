@@ -108,8 +108,21 @@ object TerrainRenderer {
         schedule(world)
     }
 
+    private var playerChanges = 0
+
+    @JvmStatic
+    fun beginPlayerChange() {
+        playerChanges++
+    }
+
+    @JvmStatic
+    fun endPlayerChange() {
+        if (playerChanges > 0) playerChanges--
+    }
+
     @JvmStatic
     fun markImportant(x: Int, y: Int, z: Int) {
+        if (playerChanges == 0) return
         for (sx in ((x - 1) shr 4)..((x + 1) shr 4)) {
             for (sz in ((z - 1) shr 4)..((z + 1) shr 4)) {
                 for (sy in ((y - 1) shr 4)..((y + 1) shr 4)) {
@@ -154,6 +167,7 @@ object TerrainRenderer {
         val affordable = (budgetNanos() / snapshotNanos).toInt().coerceAtLeast(1)
         val count = Native.terrainSchedule(scheduled, minOf(maxOf(room, 2), affordable).coerceAtMost(SCHEDULE_ENTRIES))
         var urgent = false
+        val deadline = System.nanoTime() + budgetNanos()
         for (i in 0 until count) {
             val at = scheduled + i * 20L
             val x = Memory.getInt(at)
@@ -162,6 +176,10 @@ object TerrainRenderer {
             val version = Memory.getInt(at + 12)
             val now = Memory.getInt(at + 16) != 0
             val started = System.nanoTime()
+            if (!now && i > 0 && started >= deadline) {
+                Native.terrainAbort(x, y, z, version)
+                continue
+            }
             val snapshot = Native.terrainSnapshot()
             val build = SectionBuild(x, y, z, version, generation, Snapshots.fill(snapshot, world, x, y, z, version))
             snapshotNanos += ((System.nanoTime() - started) - snapshotNanos) * 0.1

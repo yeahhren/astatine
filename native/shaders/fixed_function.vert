@@ -55,6 +55,7 @@ float generate(int coordinate, vec4 object, vec4 eye, float current, int flags, 
 
 void main() {
     Draw draw = draws[gl_InstanceIndex];
+    environmentIndex = draw.textures.w;
     vec4 object = vec4(inPosition, 1.0);
     vec4 eye = draw.modelView * object;
     gl_Position = environment.projection * eye;

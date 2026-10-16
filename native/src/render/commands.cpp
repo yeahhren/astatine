@@ -249,6 +249,12 @@ namespace at {
             case op::SET_VSYNC:
                 setVsync(load<op::Flag>(data).value != 0);
                 break;
+            case op::BEGIN_CAPTURE:
+                beginCapture();
+                break;
+            case op::END_CAPTURE:
+                endCapture();
+                break;
             case op::TERRAIN_SETUP: {
                 auto command = load<op::TerrainSetup>(data);
                 terrain::SetupParameters parameters{

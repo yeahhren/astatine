@@ -57,6 +57,14 @@ AT_EXPORT(void, present)(JNIEnv *env, jclass) {
     });
 }
 
+AT_EXPORT(void, beginCapture)(JNIEnv *env, jclass) {
+    jvm::handled(env, [&] { Renderer::get().command(op::BEGIN_CAPTURE, op::Flag{0, 0}); });
+}
+
+AT_EXPORT(void, endCapture)(JNIEnv *env, jclass) {
+    jvm::handled(env, [&] { Renderer::get().command(op::END_CAPTURE, op::Flag{0, 0}); });
+}
+
 AT_EXPORT(void, setVsync)(JNIEnv *env, jclass, jboolean enabled) {
     jvm::handled(env, [&] { Renderer::get().command(op::SET_VSYNC, op::Flag{enabled ? 1u : 0u, 0}); });
 }
