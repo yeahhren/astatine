@@ -17,6 +17,24 @@ set(ASTATINE_OUTPUT_DIR "${CMAKE_BINARY_DIR}/out" CACHE PATH "Where the built li
 
 find_package(Vulkan REQUIRED COMPONENTS glslc)
 
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+include(FetchContent)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
+set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+set(ENABLE_HLSL OFF CACHE BOOL "" FORCE)
+set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
+set(ENABLE_SPVREMAPPER OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    glslang
+    GIT_REPOSITORY https://github.com/KhronosGroup/glslang.git
+    GIT_TAG vulkan-sdk-1.4.357.0
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(glslang)
+
 if (WIN32)
     set(ASTATINE_OS windows)
     set(JNI_PLATFORM_INCLUDE win32)
@@ -138,7 +156,7 @@ target_include_directories(astatine PRIVATE
     "${ASTATINE_JAVA_HOME}/include"
     "${ASTATINE_JAVA_HOME}/include/${JNI_PLATFORM_INCLUDE}"
 )
-target_link_libraries(astatine PRIVATE Vulkan::Headers)
+target_link_libraries(astatine PRIVATE Vulkan::Headers glslang::glslang glslang::glslang-default-resource-limits)
 target_compile_definitions(astatine PRIVATE VK_NO_PROTOTYPES NOMINMAX WIN32_LEAN_AND_MEAN)
 
 if (MSVC)
