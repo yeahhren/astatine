@@ -57,25 +57,37 @@ dependencies {
     modImplementation("pl.tomgirl:pylon:$pylonVersion")
 
     ploceus.dependOsl(oslVersion)
+
+    implementation("org.antlr:antlr4-runtime:4.13.1")
+    include("org.antlr:antlr4-runtime:4.13.1")
+    implementation("io.github.douira:glsl-transformer:3.0.0-pre3") {
+        exclude(group = "org.antlr", module = "antlr4")
+    }
+    include("io.github.douira:glsl-transformer:3.0.0-pre3")
+    implementation("org.anarres:jcpp:1.4.14")
+    include("org.anarres:jcpp:1.4.14")
+    implementation("org.joml:joml:1.10.8")
+    include("org.joml:joml:1.10.8")
 }
 
 kotlin {
     jvmToolchain(25)
     compilerOptions {
-        jvmTarget = JvmTarget.JVM_1_8
+        jvmTarget = JvmTarget.JVM_25
         freeCompilerArgs.addAll("-Xno-param-assertions", "-Xno-call-assertions", "-Xno-receiver-assertions")
     }
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
     withSourcesJar()
 }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
-    options.release = 8
+    options.release = 25
+    options.compilerArgs.addAll(listOf("-Xmaxerrs", "100000"))
 }
 
 val nativeBuildDir = layout.buildDirectory.dir("native")

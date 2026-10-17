@@ -16,6 +16,6 @@
     "fabric-language-kotlin": "*",
     "pylon": ">=0.2.2",
     "minecraft": "1.8.9",
-    "java": ">=8"
+    "java": ">=25"
   }
 }
