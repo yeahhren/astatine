@@ -111,7 +111,7 @@ namespace at {
 
         void draw(u32 layout, i32 mode, const u8 *source, u32 count);
 
-        void drawMesh(Mesh *mesh, i32 mode);
+        void drawMesh(const Mesh *mesh, i32 mode);
 
         Mesh *uploadMesh(u32 layout, const u8 *source, u32 count);
 
@@ -141,7 +141,7 @@ namespace at {
 
         void flush();
 
-        void setVsync(bool enabled);
+        void setVsync(bool enabled) const;
 
         void drain();
 

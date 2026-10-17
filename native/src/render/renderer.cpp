@@ -233,7 +233,7 @@ namespace at {
         defer([framebuffer] { delete framebuffer; });
     }
 
-    void Renderer::setVsync(bool enabled) {
+    void Renderer::setVsync(bool enabled) const {
         surface->setVsync(enabled);
     }
 
@@ -371,7 +371,7 @@ namespace at {
         issue(drawRecord, 0, buffer, indices);
     }
 
-    void Renderer::drawMesh(Mesh *mesh, i32 mode) {
+    void Renderer::drawMesh(const Mesh *mesh, i32 mode) {
         bool flat = state.flatShading;
         if (!plan.plan(mode, mesh->count, flat)) return;
         u64 indexBytes = plan.indexing == PrimitivePlan::GENERATED ? u64(plan.indexCount) * 4 : 0;
@@ -430,7 +430,7 @@ namespace at {
         layout.write(source, address, address + positionBytes, count);
         GeometryPool *pool = mesh->pool;
         if (pool->positions && positionBytes > 0) {
-            VkBufferCopy region{offset, u64(mesh->firstVertex) * VertexLayout::POSITION_SIZE, positionBytes};
+            VkBufferCopy region{.srcOffset = offset, .dstOffset = static_cast<u64>(mesh->firstVertex) * VertexLayout::POSITION_SIZE, .size = positionBytes};
             vkCmdCopyBuffer(setup, buffer, pool->positions->handle, 1, &region);
         }
         if (pool->attributes && attributeBytes > 0) {
@@ -443,7 +443,7 @@ namespace at {
 
     void Renderer::releaseMesh(Mesh *mesh) {
         GeometryArena *geometry = contextValue->geometry.get();
-        defer([geometry, mesh] { geometry->release(mesh); });
+        defer([geometry, mesh] { GeometryArena::release(mesh); });
     }
 
     void Renderer::allocateTexture(Texture *texture, u32 levels, u32 width, u32 height) {
@@ -475,8 +475,7 @@ namespace at {
         bool inlineCopy = texture->usedSerial == serial;
         if (inlineCopy) endPass();
         VkCommandBuffer commands = inlineCopy ? main : setup;
-        VkImageLayout oldLayout = inlineCopy ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : texture->layout;
-        if (oldLayout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+        if (VkImageLayout oldLayout = inlineCopy ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : texture->layout; oldLayout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
             imageBarrier(commands, image->handle, VK_IMAGE_ASPECT_COLOR_BIT, image->levels, oldLayout,
                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         }
@@ -572,8 +571,8 @@ namespace at {
                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                      VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         VkBufferImageCopy region{};
-        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        region.imageExtent = {image->width, image->height, 1};
+        region.imageSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1};
+        region.imageExtent = {.width = image->width, .height = image->height, .depth = 1};
         vkCmdCopyImageToBuffer(main, image->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback.handle, 1, &region);
         imageBarrier(main, image->handle, VK_IMAGE_ASPECT_COLOR_BIT, image->levels,
                      VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,

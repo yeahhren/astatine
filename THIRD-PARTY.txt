@@ -1,0 +1,5 @@
+Astatine includes code from the following projects.
+
+Iris (https://github.com/IrisShaders/Iris)
+  Files: src/main/java/net/irisshaders/**, src/main/java/kroppeb/**, src/main/resources/assets/iris/**
+  License: GNU Lesser General Public License v3.0, see third_party_licenses/LGPL.txt
