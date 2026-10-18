@@ -116,7 +116,7 @@ public class SodiumTransformer {
 				    _vert_position = vec3(position) * (1.0 / 1024.0) - 8.0;
 				    uvec2 uv = uvec2(v.y >> 15, v.z) & 0x7FFFu;
 				    vec2 bias = mix(vec2(-0.75), vec2(0.75), equal(uv >> 14u, uvec2(1u)));
-				    _vert_tex_diffuse_coord = (vec2(uv & 0x3FFFu) + bias) * (1.0 / 16384.0);
+				    _vert_tex_diffuse_coord = mix((vec2(uv & 0x3FFFu) + bias) * (1.0 / 16384.0), unpackUnorm2x16(iris_TerrainExtra.z), 1.0 / 128.0);
 				    _vert_tex_light_coord = vec2(uvec2(v.z >> 15, v.z >> 21) & 63u) * 4.0;
 				    _vert_color = vec4(unpackUnorm4x8(v.w).rgb, 1.0 - iris_TerrainOcclusion);
 				    uint slot = (v.x >> 30) | ((v.y >> 30) << 2) | (((v.z >> 27) & 31u) << 4) | ((v.w >> 24) << 9);

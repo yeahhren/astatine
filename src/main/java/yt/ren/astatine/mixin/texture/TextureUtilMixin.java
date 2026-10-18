@@ -92,7 +92,16 @@ public abstract class TextureUtilMixin {
 		}
 
 		if (weight == 0.0f) {
-			callback.setReturnValue(0);
+			for (int pixel : pixels) {
+				red += (float) Math.pow((pixel >> 16 & 255) / 255.0f, 2.2);
+				green += (float) Math.pow((pixel >> 8 & 255) / 255.0f, 2.2);
+				blue += (float) Math.pow((pixel & 255) / 255.0f, 2.2);
+			}
+
+			int r = (int) (Math.pow(red / 4.0f, 1.0 / 2.2) * 255.0);
+			int g = (int) (Math.pow(green / 4.0f, 1.0 / 2.2) * 255.0);
+			int b = (int) (Math.pow(blue / 4.0f, 1.0 / 2.2) * 255.0);
+			callback.setReturnValue(r << 16 | g << 8 | b);
 			return;
 		}
 

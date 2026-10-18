@@ -379,7 +379,9 @@ public class ShadowRenderer {
 					pipeline.setPhase(WorldRenderingPhase.TERRAIN_CUTOUT_MIPPED);
 					renderedShadowTerrain += ShadowTerrain.draw(BlockLayer.CUTOUT_MIPPED);
 					pipeline.setPhase(WorldRenderingPhase.TERRAIN_CUTOUT);
+					client.getTextureManager().get(TextureAtlas.BLOCKS_LOCATION).pushFilter(false, false);
 					renderedShadowTerrain += ShadowTerrain.draw(BlockLayer.CUTOUT);
+					client.getTextureManager().get(TextureAtlas.BLOCKS_LOCATION).popFilter();
 				}
 				pipeline.setPhase(WorldRenderingPhase.NONE);
 

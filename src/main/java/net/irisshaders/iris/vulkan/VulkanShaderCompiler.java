@@ -5,9 +5,13 @@ import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.util.shaderc.Shaderc;
 import org.lwjgl.vulkan.VK10;
 
+import yt.ren.astatine.vulkan.VulkanContext;
+
 import java.nio.ByteBuffer;
+import java.util.regex.Pattern;
 
 public class VulkanShaderCompiler implements AutoCloseable {
+	private static final Pattern DISCARD = Pattern.compile("\\bdiscard\\b");
 	private long compiler = Shaderc.shaderc_compiler_initialize();
 	private long options;
 
@@ -57,6 +61,11 @@ public class VulkanShaderCompiler implements AutoCloseable {
 			case TESS_EVAL -> Shaderc.shaderc_tess_evaluation_shader;
 			case COMPUTE -> Shaderc.shaderc_compute_shader;
 		};
+		if (stage == PatchShaderType.FRAGMENT && VulkanContext.deviceFeatures()
+			.contains("VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT.shaderDemoteToHelperInvocation")) {
+			source = demote(source);
+		}
+
 		long result;
 		ByteBuffer sourceBytes = MemoryUtil.memUTF8(source, false);
 		ByteBuffer nameBytes = MemoryUtil.memUTF8(name);
@@ -85,6 +94,23 @@ public class VulkanShaderCompiler implements AutoCloseable {
 		} finally {
 			Shaderc.shaderc_result_release(result);
 		}
+	}
+
+	private static String demote(String source) {
+		if (!DISCARD.matcher(source).find()) {
+			return source;
+		}
+
+		int version = source.indexOf("#version");
+		int line = version < 0 ? 0 : source.indexOf('\n', version) + 1;
+
+		if (version >= 0 && line == 0) {
+			source = source + "\n";
+			line = source.length();
+		}
+
+		String body = DISCARD.matcher(source.substring(line)).replaceAll("demote");
+		return source.substring(0, line) + "#extension GL_EXT_demote_to_helper_invocation : require\n" + body;
 	}
 
 	@Override

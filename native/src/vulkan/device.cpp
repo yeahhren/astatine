@@ -251,6 +251,9 @@ namespace at {
         VkPhysicalDeviceShaderSubgroupPartitionedFeaturesEXT partitioned{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_PARTITIONED_FEATURES_EXT
         };
+        VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT demote{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DEMOTE_TO_HELPER_INVOCATION_FEATURES_EXT
+        };
         VkBaseOutStructure *modernChain = nullptr;
         auto link = [&](void *structure) {
             auto *next = static_cast<VkBaseOutStructure *>(structure);
@@ -283,6 +286,7 @@ namespace at {
             if (!offer({VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME}, &derivatives))
                 offer({VK_NV_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME}, &derivatives);
             offer({VK_EXT_SHADER_SUBGROUP_PARTITIONED_EXTENSION_NAME}, &partitioned);
+            offer({VK_EXT_SHADER_DEMOTE_TO_HELPER_INVOCATION_EXTENSION_NAME}, &demote);
             VkPhysicalDeviceFeatures2 query{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
             query.pNext = modernChain;
             vkGetPhysicalDeviceFeatures2KHR(physical, &query);
@@ -327,6 +331,7 @@ namespace at {
             AT_NOTE(derivatives, "VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR.", computeDerivativeGroupQuads)
             AT_NOTE(derivatives, "VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR.", computeDerivativeGroupLinear)
             AT_NOTE(partitioned, "VkPhysicalDeviceShaderSubgroupPartitionedFeaturesEXT.", shaderSubgroupPartitioned)
+            AT_NOTE(demote, "VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesEXT.", shaderDemoteToHelperInvocation)
         }
         AT_NOTE(features, "VkPhysicalDeviceFeatures2.", imageCubeArray)
         AT_NOTE(features, "VkPhysicalDeviceFeatures2.", independentBlend)
