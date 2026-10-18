@@ -1,6 +1,5 @@
 package net.irisshaders.iris.apiimpl;
 
-import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import net.irisshaders.iris.Iris;
 import net.irisshaders.iris.api.v0.IrisApi;
 import net.irisshaders.iris.api.v0.IrisApiConfig;
@@ -9,15 +8,9 @@ import net.irisshaders.iris.api.v0.IrisShadowProgram;
 import net.irisshaders.iris.api.v0.IrisShadowRenderCallback;
 import net.irisshaders.iris.api.v0.IrisTextVertexSink;
 import net.irisshaders.iris.gui.screen.ShaderPackScreen;
-import net.irisshaders.iris.pipeline.IrisPipelines;
-import net.irisshaders.iris.pipeline.VanillaRenderingPipeline;
-import net.irisshaders.iris.pipeline.WorldRenderingPipeline;
-import net.irisshaders.iris.pipeline.programs.ShaderKey;
-import net.irisshaders.iris.shaderpack.loading.ProgramId;
 import net.irisshaders.iris.shadows.ShadowRenderCallbacks;
-import net.irisshaders.iris.shadows.ShadowRenderingState;
-import net.irisshaders.iris.vertices.IrisTextVertexSinkImpl;
-import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screen.Screen;
+import yt.ren.astatine.shaderpack.Shaderpacks;
 
 import java.nio.ByteBuffer;
 import java.util.function.IntFunction;
@@ -33,18 +26,12 @@ public class IrisApiV0Impl implements IrisApi {
 
 	@Override
 	public boolean isShaderPackInUse() {
-		WorldRenderingPipeline pipeline = Iris.getPipelineManager().getPipelineNullable();
-
-		if (pipeline == null) {
-			return false;
-		}
-
-		return !(pipeline instanceof VanillaRenderingPipeline);
+		return Shaderpacks.isActive();
 	}
 
 	@Override
 	public boolean isRenderingShadowPass() {
-		return ShadowRenderingState.areShadowsCurrentlyBeingRendered();
+		return Shaderpacks.isRenderingShadows();
 	}
 
 	@Override
@@ -64,28 +51,20 @@ public class IrisApiV0Impl implements IrisApi {
 
 	@Override
 	public IrisTextVertexSink createTextVertexSink(int maxQuadCount, IntFunction<ByteBuffer> bufferProvider) {
-		return new IrisTextVertexSinkImpl(maxQuadCount, bufferProvider);
+		return null;
 	}
 
 	@Override
 	public float getSunPathRotation() {
-		WorldRenderingPipeline pipeline = Iris.getPipelineManager().getPipelineNullable();
-
-		if (pipeline == null) {
-			return 0;
-		}
-
-		return pipeline.getSunPathRotation();
+		return Shaderpacks.sunPathRotation();
 	}
 
 	@Override
-	public void assignPipeline(RenderPipeline pipeline, IrisProgram program) {
-		IrisPipelines.assignPipeline(pipeline, ShaderKey.findBestMatch(pipeline, ProgramId.fromAPI(program)));
+	public void assignPipeline(Object pipeline, IrisProgram program) {
 	}
 
 	@Override
-	public void assignPipelineShadow(RenderPipeline pipeline, IrisShadowProgram program) {
-		IrisPipelines.assignPipelineShadow(pipeline, ShaderKey.findBestMatch(pipeline, ProgramId.fromAPI(program)));
+	public void assignPipelineShadow(Object pipeline, IrisShadowProgram program) {
 	}
 
 	@Override
@@ -95,6 +74,6 @@ public class IrisApiV0Impl implements IrisApi {
 
 	@Override
 	public boolean isReverseZDuringShaders() {
-		return !ShadowRenderingState.areShadowsCurrentlyBeingRendered();
+		return false;
 	}
 }

@@ -66,6 +66,10 @@ public final class ProgramResources implements SamplerHolder, ImageHolder {
 		var result = new LinkedHashMap<String, List<GpuBufferSlice>>();
 
 		for (var descriptor : this.storageDeclarations) {
+			if (descriptor.name().startsWith("iris_")) {
+				continue;
+			}
+
 			if (this.storageBuffers == null) {
 				throw new IllegalArgumentException("no buffer objects for storage block " + descriptor.name());
 			}

@@ -15,6 +15,7 @@ import net.irisshaders.iris.pipeline.transform.PatchShaderType;
 import net.irisshaders.iris.pipeline.transform.TransformPatcher;
 import net.irisshaders.iris.shaderpack.loading.ProgramId;
 import net.irisshaders.iris.shaderpack.materialmap.WorldRenderingSettings;
+import net.irisshaders.iris.vertices.IrisVertexFormats;
 import net.irisshaders.iris.shaderpack.programs.ProgramSource;
 import net.irisshaders.iris.shaderpack.texture.TextureStage;
 import net.irisshaders.iris.shadows.ShadowRenderTargets;
@@ -37,7 +38,7 @@ public class ShaderCreator {
 
 		if (vertexFormat == null) {
 
-			vertexFormat = WorldRenderingSettings.INSTANCE.getVertexFormat().getVertexFormat();
+			vertexFormat = IrisVertexFormats.TERRAIN;
 		}
 		Map<PatchShaderType, String> transformed;
 
@@ -72,7 +73,7 @@ public class ShaderCreator {
 
 		if (vertexFormat == null) {
 
-			vertexFormat = WorldRenderingSettings.INSTANCE.getVertexFormat().getVertexFormat();
+			vertexFormat = IrisVertexFormats.TERRAIN;
 		}
 
 		boolean isLeash = vertexFormat == DefaultVertexFormat.POSITION_COLOR_LIGHTMAP;
@@ -97,7 +98,7 @@ public class ShaderCreator {
 
 		if (vertexFormat == null) {
 
-			vertexFormat = WorldRenderingSettings.INSTANCE.getVertexFormat().getVertexFormat();
+			vertexFormat = IrisVertexFormats.TERRAIN;
 		}
 
 		boolean isLeash = vertexFormat == DefaultVertexFormat.POSITION_COLOR_LIGHTMAP;
@@ -113,7 +114,7 @@ public class ShaderCreator {
 
 	private static ShaderSupplier createSodiumFallback(String name, ShaderKey shaderKey, AlphaTest alpha,
 		BlendModeOverride blendModeOverride, IrisRenderingPipeline parent, boolean shadow) {
-		VertexFormat vertexFormat = WorldRenderingSettings.INSTANCE.getVertexFormat().getVertexFormat();
+		VertexFormat vertexFormat = IrisVertexFormats.TERRAIN;
 		ShaderAttributeInputs inputs = new ShaderAttributeInputs(vertexFormat, false, false, false, false, false);
 		Map<PatchShaderType, String> transformed = TransformPatcher.patchSodium(name, ShaderSynthesizer.sodiumVsh(), null, null, null,
 			ShaderSynthesizer.sodiumFsh(shadow), alpha, parent.getTextureMap(),
@@ -133,7 +134,7 @@ public class ShaderCreator {
 		BlendModeOverride blendModeOverride = source.getDirectives().getBlendModeOverride().orElse(programId.getBlendModeOverride());
 		if (vertexFormat == null) {
 
-			vertexFormat = WorldRenderingSettings.INSTANCE.getVertexFormat().getVertexFormat();
+			vertexFormat = IrisVertexFormats.TERRAIN;
 		}
 		Map<PatchShaderType, String> transformed;
 		if (patchType == Patch.SODIUM) {

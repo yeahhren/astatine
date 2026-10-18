@@ -1,6 +1,7 @@
 package yt.ren.astatine.mixin.state;
 
 import java.nio.FloatBuffer;
+import net.irisshaders.iris.uniforms.CapturedRenderingState;
 import net.minecraft.client.render.platform.GlStateManager;
 import org.lwjgl.opengl.GL11;
 import org.spongepowered.asm.mixin.Mixin;
@@ -12,6 +13,7 @@ import yt.ren.astatine.memory.Memory;
 import yt.ren.astatine.render.GL;
 import yt.ren.astatine.render.GLState;
 import yt.ren.astatine.render.TextureBinding;
+import yt.ren.astatine.shaderpack.Shaderpacks;
 
 @Mixin(GlStateManager.class)
 public abstract class GlStateManagerMixin {
@@ -46,6 +48,7 @@ public abstract class GlStateManagerMixin {
 	@Redirect(method = "fogMode", at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glFogi(II)V"))
 	private static void astatine$fogMode(int name, int mode) {
 		GL.fogMode(mode);
+		Shaderpacks.fogMode(mode);
 	}
 
 	@Redirect(method = {"fogDensity", "fogStart", "fogEnd"}, at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glFogf(IF)V"))
@@ -53,12 +56,15 @@ public abstract class GlStateManagerMixin {
 		switch (name) {
 			case GL11.GL_FOG_DENSITY:
 				GL.fogDensity(value);
+				Shaderpacks.fogDensity(value);
 				break;
 			case GL11.GL_FOG_START:
 				GL.fogStart(value);
+				CapturedRenderingState.INSTANCE.setFogStart(value);
 				break;
 			case GL11.GL_FOG_END:
 				GL.fogEnd(value);
+				CapturedRenderingState.INSTANCE.setFogEnd(value);
 				break;
 			default:
 				break;

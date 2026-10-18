@@ -10,6 +10,7 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import yt.ren.astatine.Native;
+import yt.ren.astatine.vulkan.WorldDraws;
 import yt.ren.astatine.extension.MeshHolder;
 import yt.ren.astatine.memory.Memory;
 import yt.ren.astatine.render.GL;
@@ -46,7 +47,7 @@ public abstract class VertexBufferMixin implements MeshHolder {
 	@Redirect(method = "draw", at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL11;glDrawArrays(III)V"))
 	private void astatine$draw(int mode, int first, int count) {
 		if (this.astatine$mesh != 0L) {
-			Native.drawMesh(this.astatine$mesh, mode);
+			WorldDraws.drawMesh(this.astatine$mesh, mode);
 		}
 	}
 

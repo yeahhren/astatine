@@ -6,15 +6,15 @@ import net.irisshaders.iris.gui.NavigationController;
 import net.irisshaders.iris.gui.screen.ShaderPackScreen;
 import net.irisshaders.iris.shaderpack.option.BooleanOption;
 import net.irisshaders.iris.shaderpack.option.menu.OptionMenuBooleanOptionElement;
-import net.minecraft.ChatFormatting;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.network.chat.Component;
+import net.irisshaders.iris.gui.IrisGraphics;
+import net.minecraft.text.Formatting;
+import net.minecraft.text.Text;
 
 public class BooleanElementWidget extends BaseOptionElementWidget<OptionMenuBooleanOptionElement> {
-	private static final Component TEXT_TRUE = Component.translatable("label.iris.true").withStyle(ChatFormatting.GREEN);
-	private static final Component TEXT_FALSE = Component.translatable("label.iris.false").withStyle(ChatFormatting.RED);
-	private static final Component TEXT_TRUE_DEFAULT = Component.translatable("label.iris.true");
-	private static final Component TEXT_FALSE_DEFAULT = Component.translatable("label.iris.false");
+	private static final Text TEXT_TRUE = GuiUtil.withStyle(GuiUtil.translatable("label.iris.true"), Formatting.GREEN);
+	private static final Text TEXT_FALSE = GuiUtil.withStyle(GuiUtil.translatable("label.iris.false"), Formatting.RED);
+	private static final Text TEXT_TRUE_DEFAULT = GuiUtil.translatable("label.iris.true");
+	private static final Text TEXT_FALSE_DEFAULT = GuiUtil.translatable("label.iris.false");
 
 	private final BooleanOption option;
 
@@ -42,11 +42,11 @@ public class BooleanElementWidget extends BaseOptionElementWidget<OptionMenuBool
 		this.defaultValue = this.element.getAppliedOptionValues().getOptionSet().getBooleanOptions().get(this.option.getName()).getOption()
 			.getDefaultValue();
 
-		this.setLabel(GuiUtil.translateOrDefault(Component.literal(this.option.getName()), "option." + this.option.getName()));
+		this.setLabel(GuiUtil.translateOrDefault(GuiUtil.literal(this.option.getName()), "option." + this.option.getName()));
 	}
 
 	@Override
-	public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float tickDelta, boolean hovered) {
+	public void render(IrisGraphics guiGraphics, int mouseX, int mouseY, float tickDelta, boolean hovered) {
 		this.updateRenderParams(28);
 
 		this.renderOptionWithValue(guiGraphics, hovered || isFocused());
@@ -54,7 +54,7 @@ public class BooleanElementWidget extends BaseOptionElementWidget<OptionMenuBool
 	}
 
 	@Override
-	protected Component createValueLabel() {
+	protected Text createValueLabel() {
 		// UX: Do not use color if the value is set to default.
 		//
 		// This is because the red color for "Off" and green color of "On"

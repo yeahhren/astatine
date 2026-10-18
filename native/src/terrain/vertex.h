@@ -11,6 +11,28 @@ namespace at::terrain {
 
     static_assert(sizeof(Vertex) == 16);
 
+    constexpr u32 EXTENDED_UNITS = 3;
+
+    AT_INLINE u32 packSnorm8(float value) {
+        float clamped = clamp(value, -1.0f, 1.0f);
+        return static_cast<u32>(static_cast<i32>(std::round(clamped * 127.0f))) & 0xFFu;
+    }
+
+    AT_INLINE u32 packSnorm4x8(float x, float y, float z, float w) {
+        return packSnorm8(x) | packSnorm8(y) << 8 | packSnorm8(z) << 16 | packSnorm8(w) << 24;
+    }
+
+    AT_INLINE u32 packUnorm2x16(float x, float y) {
+        auto pack = [](float value) {
+            return static_cast<u32>(std::round(clamp(value, 0.0f, 1.0f) * 65535.0f));
+        };
+        return pack(x) | pack(y) << 16;
+    }
+
+    AT_INLINE u32 packSigned8(float value) {
+        return static_cast<u32>(static_cast<i32>(std::round(clamp(value, -127.0f, 127.0f)))) & 0xFFu;
+    }
+
     AT_INLINE u32 quantizePosition(float value) {
         return static_cast<u32>(clamp((value + 8.0f) * 1024.0f + 0.5f, 0.0f, 32767.0f));
     }

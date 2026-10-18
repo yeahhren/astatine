@@ -1,38 +1,26 @@
 package net.irisshaders.iris.gui.element.widget;
 
+import net.irisshaders.iris.gui.GuiBounds;
+import net.irisshaders.iris.gui.GuiKeyEvent;
+import net.irisshaders.iris.gui.GuiMouseEvent;
+import net.irisshaders.iris.gui.IrisGraphics;
 import net.irisshaders.iris.gui.NavigationController;
 import net.irisshaders.iris.gui.screen.ShaderPackScreen;
 import net.irisshaders.iris.shaderpack.option.menu.OptionMenuElement;
-import net.minecraft.client.gui.ComponentPath;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.gui.narration.NarratableEntry;
-import net.minecraft.client.gui.narration.NarrationElementOutput;
-import net.minecraft.client.gui.navigation.FocusNavigationEvent;
-import net.minecraft.client.gui.navigation.ScreenRectangle;
-import net.minecraft.client.input.KeyEvent;
-import net.minecraft.client.input.MouseButtonEvent;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
-public abstract class AbstractElementWidget<T extends OptionMenuElement> implements GuiEventListener, NarratableEntry {
+public abstract class AbstractElementWidget<T extends OptionMenuElement> {
 	public static final AbstractElementWidget<OptionMenuElement> EMPTY = new AbstractElementWidget<>(null) {
 		@Override
-		public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float tickDelta, boolean hovered) {
+		public void render(IrisGraphics guiGraphics, int mouseX, int mouseY, float tickDelta, boolean hovered) {
 		}
 
 		@Override
-		public @Nullable ComponentPath nextFocusPath(FocusNavigationEvent pGuiEventListener0) {
-			return null;
-		}
-
-		@Override
-		public @NotNull ScreenRectangle getRectangle() {
-			return ScreenRectangle.empty();
+		public GuiBounds getRectangle() {
+			return GuiBounds.EMPTY;
 		}
 	};
 	protected final T element;
-	public ScreenRectangle bounds = ScreenRectangle.empty();
+	public GuiBounds bounds = GuiBounds.EMPTY;
 	private boolean focused;
 
 	public AbstractElementWidget(T element) {
@@ -42,51 +30,29 @@ public abstract class AbstractElementWidget<T extends OptionMenuElement> impleme
 	public void init(ShaderPackScreen screen, NavigationController navigation) {
 	}
 
-	public abstract void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float tickDelta, boolean hovered);
+	public abstract void render(IrisGraphics guiGraphics, int mouseX, int mouseY, float tickDelta, boolean hovered);
 
-	@Override
-	public boolean mouseClicked(MouseButtonEvent event, boolean bl2) {
+	public boolean mouseClicked(GuiMouseEvent event, boolean bl2) {
 		return false;
 	}
 
-	@Override
-	public boolean mouseReleased(MouseButtonEvent event) {
+	public boolean mouseReleased(GuiMouseEvent event) {
 		return false;
 	}
 
-	@Override
-	public boolean keyPressed(KeyEvent event) {
+	public boolean keyPressed(GuiKeyEvent event) {
 		return false;
 	}
 
-	@Override
 	public boolean isFocused() {
 		return focused;
 	}
 
-	@Override
 	public void setFocused(boolean focused) {
 		this.focused = focused;
 	}
 
-	@Nullable
-	@Override
-	public ComponentPath nextFocusPath(FocusNavigationEvent pGuiEventListener0) {
-		return (!isFocused()) ? ComponentPath.leaf(this) : null;
-	}
-
-	@Override
-	public ScreenRectangle getRectangle() {
+	public GuiBounds getRectangle() {
 		return bounds;
-	}
-
-	@Override
-	public NarrationPriority narrationPriority() {
-		return NarrationPriority.NONE;
-	}
-
-	@Override
-	public void updateNarration(NarrationElementOutput p0) {
-
 	}
 }

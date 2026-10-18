@@ -42,6 +42,45 @@ object Native {
     external fun vendorId(): Int
 
     @JvmStatic
+    external fun borrowCommands(): Long
+
+    @JvmStatic
+    external fun externalPass(inside: Boolean)
+
+    @JvmStatic
+    external fun renderThread(enabled: Boolean)
+
+    @JvmStatic
+    external fun irisDrawState(stage: Int, flags: Int)
+
+    @JvmStatic
+    external fun presentedFrames(): Long
+
+    @JvmStatic
+    external fun framesInFlight(): Int
+
+    @JvmStatic
+    external fun vulkanHandles(): LongArray
+
+    @JvmStatic
+    external fun vulkanInstanceExtensions(): Array<String>
+
+    @JvmStatic
+    external fun vulkanDeviceExtensions(): Array<String>
+
+    @JvmStatic
+    external fun vulkanDeviceFeatures(): Array<String>
+
+    @JvmStatic
+    external fun maxColorAttachments(): Int
+
+    @JvmStatic
+    external fun tessellationShaders(): Boolean
+
+    @JvmStatic
+    external fun shaderStores(): Boolean
+
+    @JvmStatic
     external fun apiVersion(): Int
 
     @JvmStatic
@@ -87,6 +126,9 @@ object Native {
     external fun textureDetach(texture: Long)
 
     @JvmStatic
+    external fun textureCompanions(texture: Long, normals: Long, specular: Long)
+
+    @JvmStatic
     external fun textureWidth(texture: Long): Int
 
     @JvmStatic
@@ -114,6 +156,33 @@ object Native {
     external fun framebufferTexture(framebuffer: Long): Long
 
     @JvmStatic
+    external fun framebufferImages(framebuffer: Long): LongArray?
+
+    @JvmStatic
+    external fun textureImage(texture: Long): LongArray?
+
+    @JvmStatic
+    external fun textureImageHandle(texture: Long): Long
+
+    @JvmStatic
+    external fun textureSampler(texture: Long): Long
+
+    @JvmStatic
+    external fun drawBuffers(): LongArray
+
+    @JvmStatic
+    external fun layoutAttributes(layout: Int): IntArray
+
+    @JvmStatic
+    external fun meshLayout(mesh: Long): Int
+
+    @JvmStatic
+    external fun terrainLayout(): Int
+
+    @JvmStatic
+    external fun textureSampling(texture: Long): Int
+
+    @JvmStatic
     external fun getMatrix(name: Int, destination: Long)
 
     @JvmStatic
@@ -128,6 +197,10 @@ object Native {
         ambientOcclusion: Boolean,
         alternatives: Boolean,
         sky: Boolean,
+        packIds: Long,
+        ambientOcclusionLevel: Float,
+        directionalShading: Boolean,
+        separateAo: Boolean,
     )
 
     @JvmStatic
@@ -150,6 +223,7 @@ object Native {
         smartCull: Boolean,
         spectator: Boolean,
         cameraInOpaque: Boolean,
+        frustumCull: Boolean,
     )
 
     @JvmStatic
@@ -193,6 +267,12 @@ object Native {
 
     @JvmStatic
     external fun terrainDraw(layer: Int): Int
+
+    @JvmStatic
+    external fun terrainShadowView(view: Long, x: Double, y: Double, z: Double)
+
+    @JvmStatic
+    external fun terrainShadowViewEnd()
 
     @JvmStatic
     external fun terrainDebug(): String

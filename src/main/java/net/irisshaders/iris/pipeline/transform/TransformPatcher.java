@@ -25,7 +25,6 @@ import net.irisshaders.iris.gl.shader.ShaderType;
 import net.irisshaders.iris.gl.state.ShaderAttributeInputs;
 import net.irisshaders.iris.gl.texture.TextureType;
 import net.irisshaders.iris.helpers.Tri;
-import net.irisshaders.iris.opengl.GlShaderPatcher;
 import net.irisshaders.iris.pipeline.GraphicsBackend;
 import net.irisshaders.iris.pipeline.transform.parameter.ComputeParameters;
 import net.irisshaders.iris.pipeline.transform.parameter.DHParameters;
@@ -39,6 +38,7 @@ import net.irisshaders.iris.pipeline.transform.transformer.CompositeCoreTransfor
 import net.irisshaders.iris.pipeline.transform.transformer.CompositeTransformer;
 import net.irisshaders.iris.pipeline.transform.transformer.DHGenericTransformer;
 import net.irisshaders.iris.pipeline.transform.transformer.DHTerrainTransformer;
+import net.irisshaders.iris.pipeline.transform.transformer.DrawDataTransformer;
 import net.irisshaders.iris.pipeline.transform.transformer.DepthTransformer;
 import net.irisshaders.iris.pipeline.transform.transformer.GlintTransformer;
 import net.irisshaders.iris.pipeline.transform.transformer.LayoutTransformer;
@@ -216,6 +216,7 @@ public class TransformPatcher {
 			}
 
 			GlintTransformer.transformGrouped(transformer, trees, parameters);
+			DrawDataTransformer.linkStages(transformer, trees);
 
 			// the compatibility transformer does a grouped transformation
 			CompatibilityTransformer.transformGrouped(transformer, trees, parameters);
@@ -322,7 +323,7 @@ public class TransformPatcher {
 			var patched = VulkanShaderPatcher.patch(key.sources(), key.samplers(), outputs, key.registered()::contains, key.frame(),
 				key.dynamic()::contains, key.vulkan());
 
-			return key.vulkan() ? patched : GlShaderPatcher.patch(patched).source();
+			return patched;
 		});
 		if (Iris.getIrisConfig() != null && Iris.getIrisConfig().areDebugOptionsEnabled()) {
 			ShaderPrinter.printProgram(name).addSources(result.sources()).print();

@@ -11,13 +11,10 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectArrayMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.irisshaders.iris.Iris;
-import net.irisshaders.iris.api.v0.IrisApi;
 import net.irisshaders.iris.features.FeatureFlags;
 import net.irisshaders.iris.gl.buffer.BuiltShaderStorageInfo;
 import net.irisshaders.iris.gl.buffer.ShaderStorageInfo;
 import net.irisshaders.iris.gl.texture.TextureDefinition;
-import net.irisshaders.iris.gui.FeatureMissingErrorScreen;
-import net.irisshaders.iris.gui.screen.ShaderPackScreen;
 import net.irisshaders.iris.helpers.StringPair;
 import net.irisshaders.iris.pathways.colorspace.ColorSpace;
 import net.irisshaders.iris.shaderpack.error.RusticError;
@@ -42,10 +39,6 @@ import net.irisshaders.iris.shaderpack.texture.CustomTextureData;
 import net.irisshaders.iris.shaderpack.texture.TextureFilteringData;
 import net.irisshaders.iris.shaderpack.texture.TextureStage;
 import net.irisshaders.iris.uniforms.custom.CustomUniforms;
-import net.minecraft.client.Minecraft;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
-import org.apache.commons.lang3.SystemUtils;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.BufferedReader;
@@ -233,18 +226,8 @@ public class ShaderPack {
 		List<String> invalidFeatureFlags = invalidFlagList.stream().map(FeatureFlags::getHumanReadableName).toList();
 
 		if (!invalidFeatureFlags.isEmpty()) {
-			if (Minecraft.getInstance().gui.screen() instanceof ShaderPackScreen) {
-				MutableComponent component = Component.translatable("iris.unsupported.pack.description",
-					FeatureFlags.getInvalidStatus(invalidFlagList),
-					invalidFeatureFlags.stream().collect(Collectors.joining(", ", ": ", ".")));
-				if (SystemUtils.IS_OS_MAC) {
-					component = component.append(Component.translatable("iris.unsupported.pack.macos"));
-				}
-				Minecraft.getInstance().gui.setScreen(
-					new FeatureMissingErrorScreen(Minecraft.getInstance().gui.screen(), Component.translatable("iris.unsupported.pack"),
-						component));
-			}
-			IrisApi.getInstance().getConfig().setShadersEnabledAndApply(false);
+			throw new IllegalStateException(FeatureFlags.getInvalidStatus(invalidFlagList) +
+				invalidFeatureFlags.stream().collect(Collectors.joining(", ", ": ", ".")));
 		}
 		List<StringPair> newEnvDefines = new ArrayList<>(environmentDefines);
 

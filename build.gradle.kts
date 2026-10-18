@@ -16,6 +16,7 @@ val featherBuild: String by project
 val fabricKotlinVersion: String by project
 val pylonVersion: String by project
 val oslVersion: String by project
+val lwjglVersion: String by project
 
 group = mavenGroup
 version = "$modVersion+mc$minecraftVersion"
@@ -68,6 +69,21 @@ dependencies {
     include("org.anarres:jcpp:1.4.14")
     implementation("org.joml:joml:1.10.8")
     include("org.joml:joml:1.10.8")
+
+    for (module in listOf("lwjgl-vulkan", "lwjgl-vma", "lwjgl-shaderc")) {
+        implementation("org.lwjgl:$module:$lwjglVersion") { isTransitive = false }
+        include("org.lwjgl:$module:$lwjglVersion")
+    }
+    for (module in listOf("lwjgl-vma", "lwjgl-shaderc")) {
+        for (platform in listOf("windows", "windows-arm64", "linux", "macos", "macos-arm64")) {
+            runtimeOnly("org.lwjgl:$module:$lwjglVersion:natives-$platform") { isTransitive = false }
+            include("org.lwjgl:$module:$lwjglVersion:natives-$platform")
+        }
+    }
+    for (platform in listOf("macos", "macos-arm64")) {
+        runtimeOnly("org.lwjgl:lwjgl-vulkan:$lwjglVersion:natives-$platform") { isTransitive = false }
+        include("org.lwjgl:lwjgl-vulkan:$lwjglVersion:natives-$platform")
+    }
 }
 
 kotlin {

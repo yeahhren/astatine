@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <initializer_list>
 #include <vector>
 
 namespace at {
@@ -82,6 +83,8 @@ namespace at {
         maxSamplerLodBias = limits.maxSamplerLodBias;
         uniformAlignment = std::max<u64>(limits.minUniformBufferOffsetAlignment, 16);
         storageAlignment = std::max<u64>(limits.minStorageBufferOffsetAlignment, 16);
+        maxColorAttachments = limits.maxColorAttachments;
+        maxUniformBufferRange = limits.maxUniformBufferRange;
         vkGetPhysicalDeviceMemoryProperties(physical, &memory);
         {
             uint32_t count = 0;
@@ -130,6 +133,8 @@ namespace at {
                    descriptorBindingSampledImageUpdateAfterBind &&
                    indexing.descriptorBindingPartiallyBound && indexing.descriptorBindingUpdateUnusedWhilePending;
         bindlessCapacity = bindless ? capacity : 0;
+        runtimeDescriptorArray = bindless && indexing.runtimeDescriptorArray;
+        independentBlend = supported.independentBlend;
 
         VkPhysicalDeviceFeatures features{};
         features.wideLines = wideLines;
@@ -137,6 +142,24 @@ namespace at {
         features.multiDrawIndirect = multiDrawIndirect;
         features.drawIndirectFirstInstance = multiDrawIndirect;
         features.shaderSampledImageArrayDynamicIndexing = bindless;
+        features.independentBlend = independentBlend;
+        geometryShader = supported.geometryShader;
+        tessellationShader = supported.tessellationShader;
+        shaderStores = supported.fragmentStoresAndAtomics && supported.vertexPipelineStoresAndAtomics;
+        features.geometryShader = supported.geometryShader;
+        features.tessellationShader = supported.tessellationShader;
+        features.fragmentStoresAndAtomics = supported.fragmentStoresAndAtomics;
+        features.vertexPipelineStoresAndAtomics = supported.vertexPipelineStoresAndAtomics;
+        features.shaderStorageImageExtendedFormats = supported.shaderStorageImageExtendedFormats;
+        features.shaderStorageImageReadWithoutFormat = supported.shaderStorageImageReadWithoutFormat;
+        features.shaderStorageImageWriteWithoutFormat = supported.shaderStorageImageWriteWithoutFormat;
+        features.imageCubeArray = supported.imageCubeArray;
+        features.shaderImageGatherExtended = supported.shaderImageGatherExtended;
+        features.shaderFloat64 = supported.shaderFloat64;
+        features.shaderInt64 = supported.shaderInt64;
+        features.shaderInt16 = supported.shaderInt16;
+        features.samplerAnisotropy = supported.samplerAnisotropy;
+        features.fillModeNonSolid = supported.fillModeNonSolid;
 
         std::vector extensions{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
         if (bindless) {
@@ -148,13 +171,13 @@ namespace at {
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES_KHR
         };
 #ifdef _WIN32
-        const char *interopExtensions[] = {
-            VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME, "VK_KHR_external_memory_win32",
-            VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME, "VK_KHR_external_semaphore_win32",
-            VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
-            VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME
-        };
         if (instance.externalCapabilities && vkGetPhysicalDeviceFeatures2KHR && vkGetPhysicalDeviceProperties2KHR) {
+            const char *interopExtensions[] = {
+                VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME, "VK_KHR_external_memory_win32",
+                VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME, "VK_KHR_external_semaphore_win32",
+                VK_KHR_DEDICATED_ALLOCATION_EXTENSION_NAME, VK_KHR_GET_MEMORY_REQUIREMENTS_2_EXTENSION_NAME,
+                VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME
+            };
             bool available = true;
             for (const char *extension: interopExtensions) available &= hasExtension(physical, extension);
             if (available) {
@@ -207,6 +230,125 @@ namespace at {
         enabled.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
         enabled.descriptorBindingPartiallyBound = VK_TRUE;
         enabled.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
+        enabled.runtimeDescriptorArray = runtimeDescriptorArray;
+
+        bool modern = std::min(instance.apiVersion, apiVersion) >= VK_API_VERSION_1_2 && vkGetPhysicalDeviceFeatures2KHR;
+        VkPhysicalDeviceVulkan11Features vulkan11{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+        VkPhysicalDeviceVulkan12Features vulkan12{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+        VkPhysicalDeviceSynchronization2Features synchronization2{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES
+        };
+        VkPhysicalDeviceDynamicRenderingFeatures dynamicRendering{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES
+        };
+        VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT divisor{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT
+        };
+        VkPhysicalDeviceMultiDrawFeaturesEXT multiDraw{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTI_DRAW_FEATURES_EXT};
+        VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR derivatives{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COMPUTE_SHADER_DERIVATIVES_FEATURES_KHR
+        };
+        VkPhysicalDeviceShaderSubgroupPartitionedFeaturesEXT partitioned{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_SUBGROUP_PARTITIONED_FEATURES_EXT
+        };
+        VkBaseOutStructure *modernChain = nullptr;
+        auto link = [&](void *structure) {
+            auto *next = static_cast<VkBaseOutStructure *>(structure);
+            next->pNext = modernChain;
+            modernChain = next;
+        };
+        auto offer = [&](std::initializer_list<const char *> names, void *structure) {
+            for (const char *name: names) {
+                if (!hasExtension(physical, name)) return false;
+            }
+            for (const char *name: names) {
+                if (std::none_of(extensions.begin(), extensions.end(), [&](const char *present) {
+                    return std::strcmp(present, name) == 0;
+                }))
+                    extensions.push_back(name);
+            }
+            if (structure) link(structure);
+            return true;
+        };
+#define AT_NOTE(source, prefix, member) \
+    if (source.member) enabledFeatures.emplace_back(prefix #member);
+        if (modern) {
+            link(&vulkan11);
+            link(&vulkan12);
+            offer({VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME}, &synchronization2);
+            offer({VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME}, &dynamicRendering);
+            offer({VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME}, nullptr);
+            offer({VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME}, &divisor);
+            offer({VK_EXT_MULTI_DRAW_EXTENSION_NAME}, &multiDraw);
+            if (!offer({VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME}, &derivatives))
+                offer({VK_NV_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME}, &derivatives);
+            offer({VK_EXT_SHADER_SUBGROUP_PARTITIONED_EXTENSION_NAME}, &partitioned);
+            VkPhysicalDeviceFeatures2 query{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+            query.pNext = modernChain;
+            vkGetPhysicalDeviceFeatures2KHR(physical, &query);
+
+            VkPhysicalDeviceVulkan11Features supported11 = vulkan11;
+            vulkan11 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, .pNext = supported11.pNext};
+            VkPhysicalDeviceVulkan12Features supported12 = vulkan12;
+            vulkan12 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = supported12.pNext};
+#define AT_TAKE(target, source, prefix, member) \
+            if (source.member) { \
+                target.member = VK_TRUE; \
+                enabledFeatures.emplace_back(prefix #member); \
+            }
+            AT_TAKE(vulkan11, supported11, "VkPhysicalDeviceVulkan11Features.", storageBuffer16BitAccess)
+            AT_TAKE(vulkan11, supported11, "VkPhysicalDeviceVulkan11Features.", uniformAndStorageBuffer16BitAccess)
+            AT_TAKE(vulkan11, supported11, "VkPhysicalDeviceVulkan11Features.", storagePushConstant16)
+            AT_TAKE(vulkan11, supported11, "VkPhysicalDeviceVulkan11Features.", storageInputOutput16)
+            AT_TAKE(vulkan11, supported11, "VkPhysicalDeviceVulkan11Features.", shaderDrawParameters)
+            AT_TAKE(vulkan12, supported12, "VkPhysicalDeviceVulkan12Features.", timelineSemaphore)
+            AT_TAKE(vulkan12, supported12, "VkPhysicalDeviceVulkan12Features.", hostQueryReset)
+            AT_TAKE(vulkan12, supported12, "VkPhysicalDeviceVulkan12Features.", descriptorBindingSampledImageUpdateAfterBind)
+            AT_TAKE(vulkan12, supported12, "VkPhysicalDeviceVulkan12Features.", descriptorBindingUniformTexelBufferUpdateAfterBind)
+            AT_TAKE(vulkan12, supported12, "VkPhysicalDeviceVulkan12Features.", storageBuffer8BitAccess)
+            AT_TAKE(vulkan12, supported12, "VkPhysicalDeviceVulkan12Features.", shaderFloat16)
+            AT_TAKE(vulkan12, supported12, "VkPhysicalDeviceVulkan12Features.", shaderInt8)
+            AT_TAKE(vulkan12, supported12, "VkPhysicalDeviceVulkan12Features.", shaderSubgroupExtendedTypes)
+            if (bindless) {
+                AT_TAKE(vulkan12, supported12, "VkPhysicalDeviceVulkan12Features.", descriptorIndexing)
+                AT_TAKE(vulkan12, supported12, "VkPhysicalDeviceVulkan12Features.", shaderSampledImageArrayNonUniformIndexing)
+                AT_TAKE(vulkan12, supported12, "VkPhysicalDeviceVulkan12Features.", descriptorBindingPartiallyBound)
+                AT_TAKE(vulkan12, supported12, "VkPhysicalDeviceVulkan12Features.", descriptorBindingUpdateUnusedWhilePending)
+                if (runtimeDescriptorArray) {
+                    AT_TAKE(vulkan12, supported12, "VkPhysicalDeviceVulkan12Features.", runtimeDescriptorArray)
+                }
+            }
+#undef AT_TAKE
+            AT_NOTE(synchronization2, "VkPhysicalDeviceSynchronization2Features.", synchronization2)
+            AT_NOTE(dynamicRendering, "VkPhysicalDeviceDynamicRenderingFeatures.", dynamicRendering)
+            AT_NOTE(divisor, "VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT.", vertexAttributeInstanceRateDivisor)
+            AT_NOTE(divisor, "VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT.", vertexAttributeInstanceRateZeroDivisor)
+            AT_NOTE(multiDraw, "VkPhysicalDeviceMultiDrawFeaturesEXT.", multiDraw)
+            AT_NOTE(derivatives, "VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR.", computeDerivativeGroupQuads)
+            AT_NOTE(derivatives, "VkPhysicalDeviceComputeShaderDerivativesFeaturesKHR.", computeDerivativeGroupLinear)
+            AT_NOTE(partitioned, "VkPhysicalDeviceShaderSubgroupPartitionedFeaturesEXT.", shaderSubgroupPartitioned)
+        }
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", imageCubeArray)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", independentBlend)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", geometryShader)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", tessellationShader)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", logicOp)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", multiDrawIndirect)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", drawIndirectFirstInstance)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", fillModeNonSolid)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", wideLines)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", samplerAnisotropy)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", vertexPipelineStoresAndAtomics)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", fragmentStoresAndAtomics)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", shaderImageGatherExtended)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", shaderStorageImageExtendedFormats)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", shaderStorageImageReadWithoutFormat)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", shaderStorageImageWriteWithoutFormat)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", shaderSampledImageArrayDynamicIndexing)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", shaderFloat64)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", shaderInt64)
+        AT_NOTE(features, "VkPhysicalDeviceFeatures2.", shaderInt16)
+#undef AT_NOTE
 
         VkDeviceCreateInfo info{.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
         info.queueCreateInfoCount = transferFamily != ~0u ? 2 : 1;
@@ -214,14 +356,19 @@ namespace at {
         info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
         info.ppEnabledExtensionNames = extensions.data();
         info.pEnabledFeatures = &features;
+        enabledExtensions.assign(extensions.begin(), extensions.end());
         void *chain = nullptr;
-        if (bindless) {
-            enabled.pNext = chain;
-            chain = &enabled;
-        }
-        if (interop) {
-            timeline.pNext = chain;
-            chain = &timeline;
+        if (modern) {
+            chain = modernChain;
+        } else {
+            if (bindless) {
+                enabled.pNext = chain;
+                chain = &enabled;
+            }
+            if (interop) {
+                timeline.pNext = chain;
+                chain = &timeline;
+            }
         }
         info.pNext = chain;
         check(vkCreateDevice(physical, &info, nullptr, &handle), "vkCreateDevice");
@@ -241,6 +388,7 @@ namespace at {
         depthAspect = depthFormat == VK_FORMAT_D24_UNORM_S8_UINT
                           ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT
                           : VK_IMAGE_ASPECT_DEPTH_BIT;
+        packDepthFormat = supportsDepth(VK_FORMAT_D32_SFLOAT) ? VK_FORMAT_D32_SFLOAT : depthFormat;
     }
 
     Device::~Device() {

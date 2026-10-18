@@ -3,7 +3,7 @@ package net.irisshaders.iris.gl.state;
 import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.renderpearl.api.vertex.VertexFormat;
 import com.mojang.renderpearl.api.vertex.VertexFormatElement;
-import net.irisshaders.iris.shaderpack.materialmap.WorldRenderingSettings;
+import net.irisshaders.iris.vertices.IrisVertexFormats;
 
 import java.util.List;
 
@@ -30,7 +30,7 @@ public class ShaderAttributeInputs {
 
 		if (format == null) {
 			// Sodium. Get current.
-			format = WorldRenderingSettings.INSTANCE.getVertexFormat().getVertexFormat();
+			format = IrisVertexFormats.TERRAIN;
 		}
 
 		this.specialGlint = glint && format.contains("UV3");

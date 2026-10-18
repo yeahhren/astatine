@@ -4,6 +4,7 @@
 #include "core/vk.h"
 
 #include <string>
+#include <vector>
 
 namespace at {
     class Instance;
@@ -32,14 +33,22 @@ namespace at {
         std::string name;
         u32 driverVersion = 0;
         u32 apiVersion = 0;
+        std::vector<std::string> enabledExtensions;
+        std::vector<std::string> enabledFeatures;
         u32 vendorId = 0;
         VkFormat depthFormat = VK_FORMAT_UNDEFINED;
         VkImageAspectFlags depthAspect = 0;
+        VkFormat packDepthFormat = VK_FORMAT_UNDEFINED;
         bool wideLines = false;
         bool logicOp = false;
         bool multiDrawIndirect = false;
         u32 maxDrawIndirectCount = 1;
         bool bindless = false;
+        bool runtimeDescriptorArray = false;
+        bool independentBlend = false;
+        bool geometryShader = false;
+        bool tessellationShader = false;
+        bool shaderStores = false;
         bool interop = false;
         u8 luid[8] = {};
         u32 bindlessCapacity = 0;
@@ -48,6 +57,8 @@ namespace at {
         float maxSamplerLodBias = 0.0f;
         u64 uniformAlignment = 256;
         u64 storageAlignment = 256;
+        u32 maxColorAttachments = 4;
+        u32 maxUniformBufferRange = 16384;
         double timestampPeriod = 0.0;
         u64 timestampMask = 0;
         mutable u64 gpuNanos = 0;

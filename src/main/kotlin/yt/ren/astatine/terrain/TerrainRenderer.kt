@@ -13,11 +13,13 @@ import org.apache.logging.log4j.LogManager
 import yt.ren.astatine.Native
 import yt.ren.astatine.memory.LongObjectMap
 import yt.ren.astatine.memory.Memory
+import yt.ren.astatine.shaderpack.Shaderpacks
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.abs
 
 object TerrainRenderer {
     private val logger = LogManager.getLogger("Astatine/Terrain")
@@ -103,7 +105,18 @@ object TerrainRenderer {
         val minecraft = Minecraft.getInstance()
         val eyeHeight = camera.eyeHeight.toDouble()
         val inOpaque = spectator && world.getBlockState(BlockPos(x, y + eyeHeight, z)).block.isSolidRender
-        Native.terrainSetup(x, y, z, eyeHeight, frame, lookFace(camera, tickDelta, minecraft), minecraft.smartCull, spectator, inOpaque)
+        Native.terrainSetup(
+            x,
+            y,
+            z,
+            eyeHeight,
+            frame,
+            lookFace(camera, tickDelta, minecraft),
+            minecraft.smartCull && Shaderpacks.occlusionCulling(),
+            spectator,
+            inOpaque,
+            Shaderpacks.frustumCulling(),
+        )
         buildImportant(world, x, y + eyeHeight, z)
         schedule(world)
     }
@@ -142,7 +155,7 @@ object TerrainRenderer {
             val sectionX = (key shr 26).toInt() shl 10 shr 10
             val sectionZ = ((key shr 4) and 0x3FFFFF).toInt() shl 10 shr 10
             val sectionY = (key and 15).toInt()
-            if (Math.abs(sectionX - cameraX) > 1 || Math.abs(sectionY - cameraY) > 1 || Math.abs(sectionZ - cameraZ) > 1) continue
+            if (abs(sectionX - cameraX) > 1 || abs(sectionY - cameraY) > 1 || abs(sectionZ - cameraZ) > 1) continue
             val snapshot = Native.terrainSnapshot()
             runNow(SectionBuild(sectionX, sectionY, sectionZ, 0, generation, Snapshots.fill(snapshot, world, sectionX, sectionY, sectionZ, 0, true)))
             built = true
@@ -244,7 +257,7 @@ object TerrainRenderer {
     }
 
     @JvmStatic
-    fun sortTranslucent(camera: Entity) {
+    fun sortTranslucent() {
         Native.terrainSort(TRANSLUCENT_SORTS)
     }
 

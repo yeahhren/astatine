@@ -2,11 +2,9 @@ package net.irisshaders.iris.shadows.frustum.advanced;
 
 import com.sun.management.HotSpotDiagnosticMXBean;
 import com.sun.management.VMOption;
-import net.caffeinemc.mods.sodium.client.render.viewport.Viewport;
-import net.caffeinemc.mods.sodium.client.render.viewport.ViewportProvider;
 import net.irisshaders.iris.shadows.frustum.BoxCuller;
-import net.minecraft.client.renderer.culling.Frustum;
-import net.minecraft.world.phys.AABB;
+import net.minecraft.client.render.Culler;
+import net.minecraft.util.math.Box;
 import org.joml.FrustumIntersection;
 import org.joml.Matrix4fc;
 import org.joml.Vector3d;
@@ -35,7 +33,7 @@ import java.lang.management.ManagementFactory;
  * are not sensitive to the specific internal ordering of planes and corners, in order to avoid potential bugs at the
  * cost of slightly more computations.</p>
  */
-public class AdvancedShadowCullingFrustum extends Frustum implements ViewportProvider, net.caffeinemc.mods.sodium.client.render.viewport.frustum.Frustum {
+public class AdvancedShadowCullingFrustum implements Culler {
 	public static final float CHUNK_SECTION_RADIUS = 8.0f /* chunk bounds */;
 	public static final float CHUNK_SECTION_MARGIN = 1.0f /* maximum model extent */ + 0.125f /* epsilon */;
 	public static final float SECTION_HALF_SIZE = CHUNK_SECTION_RADIUS + CHUNK_SECTION_MARGIN;
@@ -95,9 +93,6 @@ public class AdvancedShadowCullingFrustum extends Frustum implements ViewportPro
 
 	public AdvancedShadowCullingFrustum(Matrix4fc modelViewProjection, Matrix4fc shadowProjection, Vector3f shadowLightVectorFromOrigin,
 		BoxCuller boxCuller) {
-		// We're overriding all of the methods, don't pass any matrices down.
-		super(new org.joml.Matrix4f(), new org.joml.Matrix4f());
-
 
 		/*
 			testing code, please ignore
@@ -112,6 +107,18 @@ public class AdvancedShadowCullingFrustum extends Frustum implements ViewportPro
 		addEdgePlanes(baseClippingPlanes, isBack);
 
 		this.boxCuller = boxCuller;
+	}
+
+	public float[][] getPlanes() {
+		return planes;
+	}
+
+	public int getPlaneCount() {
+		return planeCount;
+	}
+
+	public BoxCuller getBoxCuller() {
+		return boxCuller;
 	}
 
 	private static float safeFMA(float a, float b, float c) {
@@ -313,7 +320,7 @@ public class AdvancedShadowCullingFrustum extends Frustum implements ViewportPro
 	}
 
 	@Override
-	public boolean isVisible(AABB aabb) {
+	public boolean isVisible(Box aabb) {
 		if (boxCuller != null && boxCuller.isCulled(aabb)) {
 			return false;
 		}
@@ -418,13 +425,11 @@ public class AdvancedShadowCullingFrustum extends Frustum implements ViewportPro
 		return true;
 	}
 
-	@Override
 	public boolean testAab(float minX, float minY, float minZ, float maxX, float maxY, float maxZ) {
 		return (boxCuller == null || !boxCuller.isCulledSodium(minX, minY, minZ, maxX, maxY, maxZ)) && this.checkCornerVisibility(minX,
 			minY, minZ, maxX, maxY, maxZ) != FrustumIntersection.OUTSIDE;
 	}
 
-	@Override
 	public int intersectAab(float minX, float minY, float minZ, float maxX, float maxY, float maxZ) {
 		if (this.boxCuller == null) {
 			return this.checkCornerVisibility(minX, minY, minZ, maxX, maxY, maxZ);
@@ -447,12 +452,6 @@ public class AdvancedShadowCullingFrustum extends Frustum implements ViewportPro
 		return FrustumIntersection.INTERSECT;
 	}
 
-	@Override
-	public Viewport sodium$createViewport() {
-		return new Viewport(this, position.set(x, y, z));
-	}
-
-	@Override
 	public boolean testSection(float x, float y, float z) {
 		float minX = x - SECTION_HALF_SIZE;
 		float maxX = x + SECTION_HALF_SIZE;
@@ -476,7 +475,6 @@ public class AdvancedShadowCullingFrustum extends Frustum implements ViewportPro
 		return true;
 	}
 
-	@Override
 	public boolean testSectionExpanded(float originX, float originY, float originZ, float extend) {
 		float minX = originX - extend;
 		float maxX = originX + extend;

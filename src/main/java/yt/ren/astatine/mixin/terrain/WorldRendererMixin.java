@@ -3,6 +3,7 @@ package yt.ren.astatine.mixin.terrain;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import net.irisshaders.iris.pipeline.WorldRenderingPhase;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.client.Minecraft;
@@ -11,13 +12,17 @@ import net.minecraft.client.render.block.BlockLayer;
 import net.minecraft.client.render.block.entity.BlockEntityRenderDispatcher;
 import net.minecraft.client.render.entity.EntityRenderDispatcher;
 import net.minecraft.client.render.platform.Lighting;
+import net.minecraft.client.render.vertex.BufferBuilder;
+import net.minecraft.client.render.vertex.Tesselator;
 import net.minecraft.client.render.world.WorldRenderer;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.living.LivingEntity;
+import net.minecraft.entity.living.player.PlayerEntity;
 import net.minecraft.entity.projectile.WitherSkullEntity;
 import net.minecraft.util.TypeInstanceMultiMap;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.HitResult;
 import net.minecraft.world.chunk.WorldChunk;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -28,7 +33,9 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import yt.ren.astatine.Native;
+import yt.ren.astatine.vulkan.WorldDraws;
 import yt.ren.astatine.memory.Memory;
+import yt.ren.astatine.shaderpack.Shaderpacks;
 import yt.ren.astatine.terrain.TerrainRenderer;
 
 @Mixin(WorldRenderer.class)
@@ -121,10 +128,14 @@ public abstract class WorldRendererMixin {
 	public int render(BlockLayer layer, double tickDelta, int anaglyphRenderPass, Entity camera) {
 		Lighting.turnOff();
 		if (layer == BlockLayer.TRANSLUCENT) {
-			TerrainRenderer.sortTranslucent(camera);
+			Shaderpacks.beginTranslucent();
+			TerrainRenderer.sortTranslucent();
+		}
+		if (layer != BlockLayer.TRANSLUCENT && Shaderpacks.skipAllRendering()) {
+			return 0;
 		}
 		this.minecraft.gameRenderer.enableLightMap();
-		int drawn = Native.terrainDraw(layer.ordinal());
+		int drawn = WorldDraws.terrain(layer);
 		this.minecraft.gameRenderer.disableLightMap();
 		return drawn;
 	}
@@ -169,14 +180,20 @@ public abstract class WorldRendererMixin {
 		TerrainRenderer.markImportant(x, y, z);
 	}
 
-	@Inject(method = "renderEntities", at = @At("HEAD"))
+	@Inject(method = "renderEntities", at = @At("HEAD"), cancellable = true)
 	private void astatine$beginEntities(Entity camera, Culler culler, float tickDelta, CallbackInfo callback) {
+		if (Shaderpacks.skipAllRendering()) {
+			callback.cancel();
+			return;
+		}
+		Shaderpacks.phase(WorldRenderingPhase.ENTITIES);
 		Native.beginCapture();
 	}
 
 	@Inject(method = "renderEntities", at = @At("RETURN"))
 	private void astatine$endEntities(Entity camera, Culler culler, float tickDelta, CallbackInfo callback) {
 		Native.endCapture();
+		Shaderpacks.phase(WorldRenderingPhase.NONE);
 	}
 
 	@Inject(
@@ -245,6 +262,7 @@ public abstract class WorldRendererMixin {
 		at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/platform/Lighting;turnOn()V", ordinal = 1, shift = At.Shift.AFTER)
 	)
 	private void astatine$renderBlockEntities(Entity camera, Culler culler, float tickDelta, CallbackInfo callback) {
+		Shaderpacks.phase(WorldRenderingPhase.BLOCK_ENTITIES);
 		int count = TerrainRenderer.visibleCount();
 		long address = TerrainRenderer.visibleAddress();
 		for (int i = 0; i < count; i++) {
@@ -257,5 +275,47 @@ public abstract class WorldRendererMixin {
 				BlockEntityRenderDispatcher.INSTANCE.render(blockEntity, tickDelta, -1);
 			}
 		}
+	}
+
+	@Inject(method = "renderSky", at = @At("HEAD"))
+	private void astatine$beginSky(float tickDelta, int anaglyphRenderPass, CallbackInfo callback) {
+		Shaderpacks.phase(WorldRenderingPhase.SKY);
+	}
+
+	@Inject(method = "renderSky", at = @At("RETURN"))
+	private void astatine$endSky(float tickDelta, int anaglyphRenderPass, CallbackInfo callback) {
+		Shaderpacks.phase(WorldRenderingPhase.NONE);
+	}
+
+	@Inject(method = "renderBlockOutline", at = @At("HEAD"))
+	private void astatine$beginOutline(PlayerEntity camera, HitResult hit, int mode, float tickDelta, CallbackInfo callback) {
+		Shaderpacks.phase(WorldRenderingPhase.OUTLINE);
+	}
+
+	@Inject(method = "renderBlockOutline", at = @At("RETURN"))
+	private void astatine$endOutline(PlayerEntity camera, HitResult hit, int mode, float tickDelta, CallbackInfo callback) {
+		Shaderpacks.phase(WorldRenderingPhase.NONE);
+	}
+
+	@Inject(method = "renderMiningProgress", at = @At("HEAD"))
+	private void astatine$beginDestroy(Tesselator tesselator, BufferBuilder bufferBuilder, Entity camera, float tickDelta,
+		CallbackInfo callback) {
+		Shaderpacks.phase(WorldRenderingPhase.DESTROY);
+	}
+
+	@Inject(method = "renderMiningProgress", at = @At("RETURN"))
+	private void astatine$endDestroy(Tesselator tesselator, BufferBuilder bufferBuilder, Entity camera, float tickDelta,
+		CallbackInfo callback) {
+		Shaderpacks.phase(WorldRenderingPhase.NONE);
+	}
+
+	@Inject(method = "renderWorldBorder", at = @At("HEAD"))
+	private void astatine$beginBorder(Entity camera, float tickDelta, CallbackInfo callback) {
+		Shaderpacks.phase(WorldRenderingPhase.WORLD_BORDER);
+	}
+
+	@Inject(method = "renderWorldBorder", at = @At("RETURN"))
+	private void astatine$endBorder(Entity camera, float tickDelta, CallbackInfo callback) {
+		Shaderpacks.phase(WorldRenderingPhase.NONE);
 	}
 }

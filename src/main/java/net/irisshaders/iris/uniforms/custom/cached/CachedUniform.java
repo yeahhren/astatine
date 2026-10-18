@@ -73,12 +73,7 @@ public abstract class CachedUniform implements VariableExpression {
 
 	protected abstract boolean doUpdate();
 
-	public abstract void push(int location);
 
-	public void pushIfChanged(int location) {
-		if (this.changed)
-			push(location);
-	}
 
 	@Override
 	public void evaluateTo(FunctionContext context, FunctionReturn functionReturn) {

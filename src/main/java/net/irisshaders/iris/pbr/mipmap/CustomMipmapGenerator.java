@@ -1,10 +1,9 @@
 package net.irisshaders.iris.pbr.mipmap;
 
-import com.mojang.blaze3d.platform.NativeImage;
 import org.jetbrains.annotations.Nullable;
 
 public interface CustomMipmapGenerator {
-	NativeImage[] generateMipLevels(NativeImage[] image, int mipLevel);
+	int[][] generateMipLevels(int[][] image, int width, int height, int mipLevel);
 
 	interface Provider {
 		@Nullable CustomMipmapGenerator getMipmapGenerator();

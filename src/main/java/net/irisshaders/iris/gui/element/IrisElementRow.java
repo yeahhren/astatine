@@ -1,19 +1,14 @@
 package net.irisshaders.iris.gui.element;
 
 import com.google.common.collect.ImmutableList;
+import net.irisshaders.iris.gui.GuiBounds;
+import net.irisshaders.iris.gui.GuiKeyEvent;
+import net.irisshaders.iris.gui.GuiMouseEvent;
 import net.irisshaders.iris.gui.GuiUtil;
+import net.irisshaders.iris.gui.IrisGraphics;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.ComponentPath;
-import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.events.GuiEventListener;
-import net.minecraft.client.gui.navigation.FocusNavigationEvent;
-import net.minecraft.client.gui.navigation.ScreenRectangle;
-import net.minecraft.client.input.KeyEvent;
-import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.network.chat.Component;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import net.minecraft.client.render.TextRenderer;
+import net.minecraft.text.Text;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -83,7 +78,7 @@ public class IrisElementRow {
 	/**
 	 * Renders the row, with the anchor point being the top left.
 	 */
-	public void render(GuiGraphicsExtractor guiGraphics, int x, int y, int height, int mouseX, int mouseY, float tickDelta,
+	public void render(IrisGraphics guiGraphics, int x, int y, int height, int mouseX, int mouseY, float tickDelta,
 		boolean rowHovered) {
 		this.x = x;
 		this.y = y;
@@ -104,7 +99,7 @@ public class IrisElementRow {
 	/**
 	 * Renders the row, with the anchor point being the top right.
 	 */
-	public void renderRightAligned(GuiGraphicsExtractor guiGraphics, int x, int y, int height, int mouseX, int mouseY, float tickDelta,
+	public void renderRightAligned(IrisGraphics guiGraphics, int x, int y, int height, int mouseX, int mouseY, float tickDelta,
 		boolean hovered) {
 		render(guiGraphics, x - this.width, y, height, mouseX, mouseY, tickDelta, hovered);
 	}
@@ -133,31 +128,31 @@ public class IrisElementRow {
 		return this.orderedElements.stream().filter(Element::isFocused).findFirst();
 	}
 
-	public boolean mouseClicked(MouseButtonEvent event, boolean bl2) {
+	public boolean mouseClicked(GuiMouseEvent event, boolean bl2) {
 		return getHovered(event.x(), event.y()).map(element -> element.mouseClicked(event, bl2)).orElse(false);
 	}
 
-	public boolean mouseReleased(MouseButtonEvent event) {
+	public boolean mouseReleased(GuiMouseEvent event) {
 		return getHovered(event.x(), event.y()).map(element -> element.mouseReleased(event)).orElse(false);
 	}
 
-	public boolean keyPressed(KeyEvent event) {
+	public boolean keyPressed(GuiKeyEvent event) {
 		return getFocused().map(element -> element.keyPressed(event)).orElse(false);
 	}
 
-	public List<? extends GuiEventListener> children() {
+	public List<Element> children() {
 		return ImmutableList.copyOf(this.orderedElements);
 	}
 
-	public static abstract class Element implements GuiEventListener {
+	public static abstract class Element {
 		public boolean disabled = false;
 		private boolean hovered = false;
 		private boolean focused;
-		private ScreenRectangle bounds = ScreenRectangle.empty();
+		private GuiBounds bounds = GuiBounds.EMPTY;
 
-		public void render(GuiGraphicsExtractor guiGraphics, int x, int y, int width, int height, int mouseX, int mouseY, float tickDelta,
+		public void render(IrisGraphics guiGraphics, int x, int y, int width, int height, int mouseX, int mouseY, float tickDelta,
 			boolean hovered) {
-			this.bounds = new ScreenRectangle(x, y, width, height);
+			this.bounds = new GuiBounds(x, y, width, height);
 
 			GuiUtil.bindIrisWidgetsTexture();
 			GuiUtil.drawButton(guiGraphics, x, y, width, height, isHovered() || isFocused(), this.disabled);
@@ -166,31 +161,34 @@ public class IrisElementRow {
 			this.renderLabel(guiGraphics, x, y, width, height, mouseX, mouseY, tickDelta, hovered);
 		}
 
-		public abstract void renderLabel(GuiGraphicsExtractor guiGraphics, int x, int y, int width, int height, int mouseX, int mouseY,
+		public abstract void renderLabel(IrisGraphics guiGraphics, int x, int y, int width, int height, int mouseX, int mouseY,
 			float tickDelta, boolean hovered);
 
 		public boolean isHovered() {
 			return hovered;
 		}
 
-		@Override
 		public boolean isFocused() {
 			return focused;
 		}
 
-		@Override
 		public void setFocused(boolean focused) {
 			this.focused = focused;
 		}
 
-		@Nullable
-		@Override
-		public ComponentPath nextFocusPath(FocusNavigationEvent pGuiEventListener0) {
-			return (!isFocused()) ? ComponentPath.leaf(this) : null;
+		public boolean mouseClicked(GuiMouseEvent event, boolean bl2) {
+			return false;
 		}
 
-		@Override
-		public @NotNull ScreenRectangle getRectangle() {
+		public boolean mouseReleased(GuiMouseEvent event) {
+			return false;
+		}
+
+		public boolean keyPressed(GuiKeyEvent event) {
+			return false;
+		}
+
+		public GuiBounds getRectangle() {
 			return bounds;
 		}
 	}
@@ -204,12 +202,12 @@ public class IrisElementRow {
 		}
 
 		@Override
-		public boolean mouseClicked(MouseButtonEvent event, boolean bl2) {
+		public boolean mouseClicked(GuiMouseEvent event, boolean bl2) {
 			if (this.disabled) {
 				return false;
 			}
 
-			if (event.button() == 1) {
+			if (event.button() == GuiMouseEvent.LEFT) {
 				return this.onClick.apply((T) this);
 			}
 
@@ -217,7 +215,7 @@ public class IrisElementRow {
 		}
 
 		@Override
-		public boolean keyPressed(KeyEvent event) {
+		public boolean keyPressed(GuiKeyEvent event) {
 			if (event.isConfirmation()) {
 				return this.onClick.apply((T) this);
 			}
@@ -243,7 +241,7 @@ public class IrisElementRow {
 		}
 
 		@Override
-		public void renderLabel(GuiGraphicsExtractor guiGraphics, int x, int y, int width, int height, int mouseX, int mouseY,
+		public void renderLabel(IrisGraphics guiGraphics, int x, int y, int width, int height, int mouseX, int mouseY,
 			float tickDelta, boolean hovered) {
 			int iconX = x + (int) ((width - this.icon.getWidth()) * 0.5);
 			int iconY = y + (int) ((height - this.icon.getHeight()) * 0.5);
@@ -261,20 +259,20 @@ public class IrisElementRow {
 	 * A clickable button element that uses a text component as its label.
 	 */
 	public static class TextButtonElement extends ButtonElement<TextButtonElement> {
-		protected final Font font;
-		public Component text;
+		protected final TextRenderer font;
+		public Text text;
 
-		public TextButtonElement(Component text, Function<TextButtonElement, Boolean> onClick) {
+		public TextButtonElement(Text text, Function<TextButtonElement, Boolean> onClick) {
 			super(onClick);
 
-			this.font = Minecraft.getInstance().font;
+			this.font = Minecraft.getInstance().textRenderer;
 			this.text = text;
 		}
 
 		@Override
-		public void renderLabel(GuiGraphicsExtractor guiGraphics, int x, int y, int width, int height, int mouseX, int mouseY,
+		public void renderLabel(IrisGraphics guiGraphics, int x, int y, int width, int height, int mouseX, int mouseY,
 			float tickDelta, boolean hovered) {
-			int textX = x + (int) ((width - this.font.width(this.text)) * 0.5);
+			int textX = x + (int) ((width - GuiUtil.width(this.text)) * 0.5);
 			int textY = y + (int) ((height - 8) * 0.5);
 
 			guiGraphics.text(this.font, this.text, textX, textY, 0xFFFFFFFF);

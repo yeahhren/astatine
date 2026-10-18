@@ -76,8 +76,8 @@ public final class ComputeProgram implements AutoCloseable {
 	}
 
 	public void dispatch(float width, float height) {
-		var level = Minecraft.getInstance().level;
-		this.dispatch(this.indirect == null ? this.getWorkGroups(width, height) : new Vector3i(), level == null ? 0 : level.getGameTime(),
+		var level = Minecraft.getInstance().world;
+		this.dispatch(this.indirect == null ? this.getWorkGroups(width, height) : new Vector3i(), level == null ? 0 : level.getTime(),
 			SystemTimeUniforms.COUNTER.getAsInt());
 	}
 

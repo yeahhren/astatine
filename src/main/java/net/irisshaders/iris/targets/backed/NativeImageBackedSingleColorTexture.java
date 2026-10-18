@@ -1,12 +1,11 @@
 package net.irisshaders.iris.targets.backed;
 
 import com.mojang.blaze3d.platform.NativeImage;
-import net.caffeinemc.mods.sodium.api.util.ColorARGB;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 
 public class NativeImageBackedSingleColorTexture extends DynamicTexture {
 	public NativeImageBackedSingleColorTexture(int red, int green, int blue, int alpha) {
-		super(() -> "Single color texture", create(1, 1, ColorARGB.pack(red, green, blue, alpha)));
+		super(() -> "Single color texture", create(1, 1, (alpha & 255) << 24 | (red & 255) << 16 | (green & 255) << 8 | blue & 255));
 	}
 
 	public NativeImageBackedSingleColorTexture(int rgba) {
@@ -14,7 +13,7 @@ public class NativeImageBackedSingleColorTexture extends DynamicTexture {
 	}
 
 	public NativeImageBackedSingleColorTexture(int width, int height, int red, int green, int blue, int alpha) {
-		super(() -> "Single color texture", create(width, height, ColorARGB.pack(red, green, blue, alpha)));
+		super(() -> "Single color texture", create(width, height, (alpha & 255) << 24 | (red & 255) << 16 | (green & 255) << 8 | blue & 255));
 	}
 
 	private static NativeImage create(int width, int height, int color) {

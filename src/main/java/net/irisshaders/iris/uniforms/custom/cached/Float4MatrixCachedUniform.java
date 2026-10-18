@@ -1,6 +1,5 @@
 package net.irisshaders.iris.uniforms.custom.cached;
 
-import net.irisshaders.iris.gl.IrisRenderSystem;
 import net.irisshaders.iris.gl.uniform.UniformUpdateFrequency;
 import net.irisshaders.iris.parsing.MatrixType;
 import org.joml.Matrix4f;
@@ -20,12 +19,6 @@ public class Float4MatrixCachedUniform extends VectorCachedUniform<Matrix4fc> {
 		((Matrix4f) this.cached).set(other);
 	}
 
-	@Override
-	public void push(int location) {
-		// `gets` the values from the matrix and put's them into a buffer
-		this.cached.get(buffer);
-		IrisRenderSystem.uniformMatrix4fv(location, false, buffer);
-	}
 
 	@Override
 	public MatrixType<Matrix4f> getType() {

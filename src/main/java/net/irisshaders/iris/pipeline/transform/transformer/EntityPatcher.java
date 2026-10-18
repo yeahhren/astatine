@@ -67,8 +67,7 @@ public class EntityPatcher {
 		root.replaceReferenceExpressions(t, "currentRenderedItemId", "iris_entityInfo.z");
 
 		if (parameters.type.glShaderType == ShaderType.VERTEX) {
-			tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "in ivec3 iris_Entity;");
-			tree.prependMainFunctionBody(t, "iris_entityInfo = iris_Entity;");
+			tree.prependMainFunctionBody(t, "iris_entityInfo = " + DrawDataTransformer.DRAW + ".ids.xyz;");
 		}
 
 		VaryingTransformer.add(t, tree, parameters, Type.I32VEC3, "iris_entityInfo");

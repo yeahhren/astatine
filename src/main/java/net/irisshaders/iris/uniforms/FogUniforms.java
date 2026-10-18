@@ -1,12 +1,10 @@
 package net.irisshaders.iris.uniforms;
 
-import net.caffeinemc.mods.sodium.client.util.FogStorage;
 import net.irisshaders.iris.gl.state.FogMode;
 import net.irisshaders.iris.gl.state.StateUpdateNotifiers;
 import net.irisshaders.iris.gl.uniform.DynamicUniformHolder;
 import net.irisshaders.iris.gl.uniform.UniformHolder;
 import net.irisshaders.iris.gl.uniform.UniformUpdateFrequency;
-import net.minecraft.client.Minecraft;
 import org.joml.Vector3f;
 import org.lwjgl.opengl.GL11;
 
@@ -41,11 +39,10 @@ public class FogUniforms {
 		}, notifier -> {
 		});
 
-		uniforms.uniform1f("fogStart",
-			() -> ((FogStorage) Minecraft.getInstance().gameRenderer).sodium$getFogParameters().environmentalStart(),
+		uniforms.uniform1f("fogStart", CapturedRenderingState.INSTANCE::getFogStart,
 			listener -> StateUpdateNotifiers.fogStartNotifier.setListener(listener));
 
-		uniforms.uniform1f("fogEnd", () -> ((FogStorage) Minecraft.getInstance().gameRenderer).sodium$getFogParameters().environmentalEnd(),
+		uniforms.uniform1f("fogEnd", CapturedRenderingState.INSTANCE::getFogEnd,
 			listener -> StateUpdateNotifiers.fogEndNotifier.setListener(listener));
 
 		addFogColor(uniforms);

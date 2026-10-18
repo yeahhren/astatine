@@ -90,4 +90,16 @@ namespace at::terrain {
             if (model >= count) fail("Weighted model points past the model table");
         }
     }
+    void Tables::removeDirectionalShading() {
+        constexpr float SHADES[6] = {0.5f, 1.0f, 0.8f, 0.8f, 0.6f, 0.6f};
+        for (Quad &quad: quads) {
+            if (quad.face >= 6) continue;
+            u32 gray = static_cast<u32>(std::clamp(static_cast<int>(SHADES[quad.face] * 255.0f), 0, 255));
+            u32 shaded = 0xFF000000u | gray << 16 | gray << 8 | gray;
+            bool uniform = true;
+            for (u32 color: quad.color) uniform &= color == shaded;
+            if (!uniform) continue;
+            for (u32 &color: quad.color) color = 0xFFFFFFFFu;
+        }
+    }
 } // namespace at::terrain

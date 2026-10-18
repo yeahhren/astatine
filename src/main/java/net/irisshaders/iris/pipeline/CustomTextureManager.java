@@ -7,9 +7,6 @@ import net.irisshaders.iris.Iris;
 import net.irisshaders.iris.gl.texture.TextureAccess;
 import net.irisshaders.iris.gl.texture.TextureType;
 import net.irisshaders.iris.gl.texture.TextureWrapper;
-import net.irisshaders.iris.mixin.texture.TextureManagerAccessor;
-import net.irisshaders.iris.pbr.texture.PBRTextureHolder;
-import net.irisshaders.iris.pbr.texture.PBRTextureManager;
 import net.irisshaders.iris.pbr.texture.PBRType;
 import net.irisshaders.iris.shaderpack.properties.PackDirectives;
 import net.irisshaders.iris.shaderpack.texture.CustomTextureData;
@@ -17,13 +14,13 @@ import net.irisshaders.iris.shaderpack.texture.TextureStage;
 import net.irisshaders.iris.targets.backed.NativeImageBackedCustomTexture;
 import net.irisshaders.iris.targets.backed.NativeImageBackedNoiseTexture;
 import net.irisshaders.iris.targets.backed.RawTexture;
-import net.minecraft.IdentifierException;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.AbstractTexture;
-import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
-import net.minecraft.client.renderer.texture.TextureManager;
-import net.minecraft.resources.Identifier;
+import net.minecraft.client.render.texture.Texture;
+import net.minecraft.resource.Identifier;
 import org.apache.commons.io.FilenameUtils;
+import yt.ren.astatine.shaderpack.PbrTextures;
+import yt.ren.astatine.vulkan.MinecraftTextures;
+import yt.ren.astatine.vulkan.NativeTextures;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -47,7 +44,7 @@ public class CustomTextureManager {
 				customTextureStageDataMap.forEach((samplerName, textureData) -> {
 					try {
 						customTextureIds.put(samplerName, this.createCustomTexture(textureData));
-					} catch (IOException | IdentifierException e) {
+					} catch (IOException | RuntimeException e) {
 						Iris.logger.error(
 							"Unable to parse the image data for the custom texture on stage " + textureStage + ", sampler " + samplerName,
 							e);
@@ -90,7 +87,7 @@ public class CustomTextureManager {
 		}
 	}
 
-	private TextureAccess createCustomTexture(CustomTextureData textureData) throws IOException, IdentifierException {
+	private TextureAccess createCustomTexture(CustomTextureData textureData) throws IOException {
 		if (textureData instanceof CustomTextureData.PngData) {
 			NativeImageBackedCustomTexture texture = new NativeImageBackedCustomTexture((CustomTextureData.PngData) textureData);
 			ownedTextures.add(texture);
@@ -98,7 +95,7 @@ public class CustomTextureManager {
 			return texture;
 		} else if (textureData instanceof CustomTextureData.LightmapMarker) {
 
-			return new TextureWrapper(() -> Minecraft.getInstance().gameRenderer.levelLightmap(), TextureType.TEXTURE_2D);
+			return new TextureWrapper(MinecraftTextures::lightmap, TextureType.TEXTURE_2D);
 		} else if (textureData instanceof CustomTextureData.RawData1D rawData1D) {
 			RawTexture texture = new RawTexture(TextureType.TEXTURE_1D, rawData1D.getSizeX(), 0, 0, rawData1D.getInternalFormat(),
 				rawData1D.getPixelFormat(), rawData1D.getPixelType(), rawData1D.getContent(), rawData1D.getFilteringData());
@@ -139,35 +136,27 @@ public class CustomTextureManager {
 			}
 			PBRType pbrType = PBRType.fromFileLocation(withoutExtension);
 
-			TextureManager textureManager = Minecraft.getInstance().getTextureManager();
-
 			if (pbrType != null) {
 				location = location.substring(0, extensionIndex - pbrType.getSuffix().length()) + location.substring(extensionIndex);
 			}
 
-			Identifier textureLocation = Identifier.fromNamespaceAndPath(namespace, location);
-			textureManager.getTexture(textureLocation);
-			var missingTexture = textureManager.getTexture(MissingTextureAtlasSprite.getLocation());
-			var textures = ((TextureManagerAccessor) textureManager).iris$getTextures();
+			Identifier textureLocation = new Identifier(namespace, location);
+			Texture loaded = MinecraftTextures.load(textureLocation);
 
 			return new TextureWrapper(() -> {
-				AbstractTexture texture = textures.get(textureLocation);
-
-				if (texture == null) {
-					return missingTexture.getTextureView();
-				}
+				long texture = MinecraftTextures.handle(loaded);
 
 				if (pbrType == null) {
-					return texture.getTextureView();
+					return NativeTextures.view(texture);
 				}
 
-				PBRTextureHolder pbrHolder = PBRTextureManager.INSTANCE.getOrLoadHolder(texture.getTexture());
-				AbstractTexture pbrTexture = switch (pbrType) {
-					case NORMAL -> pbrHolder.normalTexture();
-					case SPECULAR -> pbrHolder.specularTexture();
+				long[] companions = PbrTextures.companions(texture);
+				long pbrTexture = switch (pbrType) {
+					case NORMAL -> companions == null || companions[0] == 0L ? PbrTextures.defaultNormals() : companions[0];
+					case SPECULAR -> companions == null || companions[1] == 0L ? PbrTextures.defaultSpecular() : companions[1];
 				};
 
-				return pbrTexture.getTextureView();
+				return NativeTextures.view(pbrTexture);
 			}, TextureType.TEXTURE_2D);
 		}
 		throw new IllegalArgumentException("Don't know texture type!");

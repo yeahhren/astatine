@@ -1,51 +1,39 @@
 package net.irisshaders.iris.uniforms;
 
-import net.irisshaders.iris.compat.dh.DHCompat;
 import net.irisshaders.iris.gl.state.FogMode;
 import net.irisshaders.iris.gl.state.StateUpdateNotifiers;
 import net.irisshaders.iris.gl.uniform.DynamicUniformHolder;
 import net.irisshaders.iris.gl.uniform.UniformHolder;
 import net.irisshaders.iris.gl.uniform.UniformUpdateFrequency;
-import net.irisshaders.iris.layer.GbufferPrograms;
-import net.irisshaders.iris.mixin.texture.TextureAtlasAccessor;
-import net.irisshaders.iris.mixinterface.LocalPlayerInterface;
-import net.irisshaders.iris.pbr.TextureTracker;
 import net.irisshaders.iris.shaderpack.IdMap;
 import net.irisshaders.iris.shaderpack.properties.PackDirectives;
 import net.irisshaders.iris.uniforms.transforms.SmoothedFloat;
 import net.irisshaders.iris.uniforms.transforms.SmoothedVec2f;
+import net.minecraft.block.material.Material;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.TextureFilteringMethod;
-import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.client.renderer.GameRenderer;
-import net.minecraft.client.renderer.texture.AbstractTexture;
-import net.minecraft.client.renderer.texture.TextureAtlas;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.attribute.EnvironmentAttributes;
-import net.minecraft.world.effect.MobEffectInstance;
-import net.minecraft.world.effect.MobEffects;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.HumanoidArm;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.level.LightLayer;
-import net.minecraft.world.level.material.FogType;
-import net.minecraft.world.phys.Vec3;
+import net.minecraft.client.render.texture.TextureAtlas;
+import net.minecraft.client.render.texture.TextureAtlasSprite;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.living.LivingEntity;
+import net.minecraft.entity.living.effect.StatusEffect;
+import net.minecraft.entity.living.effect.StatusEffectInstance;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.LightType;
 import org.joml.Math;
 import org.joml.Vector2f;
 import org.joml.Vector2i;
 import org.joml.Vector3d;
 import org.joml.Vector4f;
 import org.joml.Vector4i;
+import yt.ren.astatine.mixin.shaderpack.GameRendererAccessor;
+import yt.ren.astatine.shaderpack.Shaderpacks;
 
 public final class CommonUniforms {
 	private static final Minecraft client = Minecraft.getInstance();
 	private static final Vector2i ZERO_VECTOR_2i = new Vector2i();
 	private static final Vector4i ZERO_VECTOR_4i = new Vector4i(0, 0, 0, 0);
 	private static final Vector3d ZERO_VECTOR_3d = new Vector3d();
-
-	static {
-		GbufferPrograms.init();
-	}
 
 	private CommonUniforms() {
 		// no construction allowed
@@ -66,38 +54,18 @@ public final class CommonUniforms {
 		// Note: on 1.17+ we don't need to reset this when textures are bound, since
 		// the shader will always be setup (and therefore uniforms will be re-uploaded)
 		// after the texture is changed and before rendering starts.
-		uniforms.uniform2i("atlasSize", () -> {
-			var glId = TextureTracker.INSTANCE.getBoundTexture();
-
-			if (glId == null) {
-				return ZERO_VECTOR_2i;
-			}
-
-			AbstractTexture texture = TextureTracker.INSTANCE.getTexture(glId);
-			if (texture instanceof TextureAtlas atlas) {
-				TextureAtlasAccessor atlasAccessor = (TextureAtlasAccessor) atlas;
-				return new Vector2i(atlasAccessor.callGetWidth(), atlasAccessor.callGetHeight());
-			}
-
-			return ZERO_VECTOR_2i;
-		}, listener -> {
+		uniforms.uniform2i("atlasSize", CommonUniforms::getBlockAtlasSize, listener -> {
 		});
 
-		uniforms.uniform1i("gtextureId", () -> TextureTracker.INSTANCE.identity(TextureTracker.INSTANCE.getBoundTexture()),
-			StateUpdateNotifiers.bindTextureNotifier);
+		uniforms.uniform1i("gtextureId", () -> 0, StateUpdateNotifiers.bindTextureNotifier);
 		uniforms.uniform1i("textureReloadCount", CapturedRenderingState.INSTANCE::getTextureReloadCount,
 			StateUpdateNotifiers.bindTextureNotifier);
 
-		uniforms.uniform2i("gtextureSize", () -> {
-			var texture = TextureTracker.INSTANCE.getBoundTexture();
-
-			return texture == null ? ZERO_VECTOR_2i : new Vector2i(texture.getWidth(0), texture.getHeight(0));
-
-		}, StateUpdateNotifiers.bindTextureNotifier);
+		uniforms.uniform2i("gtextureSize", CommonUniforms::getBlockAtlasSize, StateUpdateNotifiers.bindTextureNotifier);
 
 		uniforms.uniform4i("blendFunc", CapturedRenderingState.INSTANCE::getBlendFunction, StateUpdateNotifiers.blendFuncNotifier);
 
-		uniforms.uniform1i("renderStage", () -> GbufferPrograms.getCurrentPhase().ordinal(), StateUpdateNotifiers.phaseChangeNotifier);
+		uniforms.uniform1i("renderStage", () -> Shaderpacks.currentPhase().ordinal(), StateUpdateNotifiers.phaseChangeNotifier);
 	}
 
 	public static void addCommonUniforms(DynamicUniformHolder uniforms, IdMap idMap, PackDirectives directives,
@@ -128,8 +96,8 @@ public final class CommonUniforms {
 		SmoothedVec2f eyeBrightnessSmooth = new SmoothedVec2f(directives.getEyeBrightnessHalfLife(), directives.getEyeBrightnessHalfLife(),
 			CommonUniforms::getEyeBrightness, updateNotifier);
 
-		uniforms.uniform1b(UniformUpdateFrequency.PER_FRAME, "hideGUI", client.gui.hud::isHidden)
-			.uniform1b(UniformUpdateFrequency.PER_FRAME, "isRightHanded", () -> client.options.mainHand().get() == HumanoidArm.RIGHT)
+		uniforms.uniform1b(UniformUpdateFrequency.PER_FRAME, "hideGUI", () -> client.options.hideGui)
+			.uniform1b(UniformUpdateFrequency.PER_FRAME, "isRightHanded", () -> true)
 			.uniform1i(UniformUpdateFrequency.PER_FRAME, "isEyeInWater", CommonUniforms::isEyeInWater)
 			.uniform1f(UniformUpdateFrequency.PER_FRAME, "blindness", CommonUniforms::getBlindness)
 			.uniform1f(UniformUpdateFrequency.PER_FRAME, "darknessFactor", CommonUniforms::getDarknessFactor)
@@ -143,19 +111,14 @@ public final class CommonUniforms {
 			.uniform1b(UniformUpdateFrequency.PER_FRAME, "is_on_ground", CommonUniforms::isOnGround)
 			// TODO: Do we need to clamp this to avoid fullbright breaking shaders? Or should shaders be able to detect
 			//       that the player is trying to turn on fullbright?
-			.uniform1f(UniformUpdateFrequency.PER_FRAME, "screenBrightness", () -> client.options.gamma().get())
+			.uniform1f(UniformUpdateFrequency.PER_FRAME, "screenBrightness", () -> client.options.gamma)
 			// just a dummy value for shaders where entityColor isn't supplied through a vertex attribute (and thus is
 			// not available) - suppresses warnings. See AttributeShaderTransformer for the actual entityColor code.
 			.uniform4f(UniformUpdateFrequency.ONCE, "entityColor", () -> new Vector4f(0, 0, 0, 0))
 			.uniform1i(UniformUpdateFrequency.ONCE, "blockEntityId", () -> -1)
 			.uniform1i(UniformUpdateFrequency.ONCE, "currentRenderedItemId", () -> -1)
-			.uniform1i(UniformUpdateFrequency.PER_FRAME, "anisotropicFiltering", () -> {
-				if (Minecraft.getInstance().options.textureFiltering().get() == TextureFilteringMethod.ANISOTROPIC) {
-					return Minecraft.getInstance().options.maxAnisotropyValue();
-				} else {
-					return 0;
-				}
-			}).uniform1f(UniformUpdateFrequency.ONCE, "pi", () -> Math.PI)
+			.uniform1i(UniformUpdateFrequency.PER_FRAME, "anisotropicFiltering", () -> 0)
+			.uniform1f(UniformUpdateFrequency.ONCE, "pi", () -> Math.PI)
 			.uniform1f(UniformUpdateFrequency.PER_TICK, "playerMood", CommonUniforms::getPlayerMood)
 			.uniform1f(UniformUpdateFrequency.PER_TICK, "constantMood", CommonUniforms::getConstantMood)
 			.uniform2i(UniformUpdateFrequency.PER_FRAME, "eyeBrightness", CommonUniforms::getEyeBrightness)
@@ -166,18 +129,30 @@ public final class CommonUniforms {
 			.uniform1f(UniformUpdateFrequency.PER_TICK, "wetness",
 				new SmoothedFloat(directives.getWetnessHalfLife(), directives.getDrynessHalfLife(), CommonUniforms::getRainStrength,
 					updateNotifier)).uniform3d(UniformUpdateFrequency.PER_FRAME, "skyColor", CommonUniforms::getSkyColor)
-			.uniform1f(UniformUpdateFrequency.PER_FRAME, "dhFarPlane", DHCompat::getFarPlane)
-			.uniform1f(UniformUpdateFrequency.PER_FRAME, "dhNearPlane", DHCompat::getNearPlane)
-			.uniform1i(UniformUpdateFrequency.PER_FRAME, "dhRenderDistance", DHCompat::getRenderDistance);
+			.uniform1f(UniformUpdateFrequency.PER_FRAME, "dhFarPlane", () -> 0.0f)
+			.uniform1f(UniformUpdateFrequency.PER_FRAME, "dhNearPlane", () -> 0.0f)
+			.uniform1i(UniformUpdateFrequency.PER_FRAME, "dhRenderDistance", () -> 0);
+	}
+
+	private static Vector2i getBlockAtlasSize() {
+		TextureAtlas atlas = client.getBlocksAtlas();
+		TextureAtlasSprite sprite = atlas == null ? null : atlas.getMissingSprite();
+
+		if (sprite == null || sprite.getUMax() <= sprite.getUMin() || sprite.getVMax() <= sprite.getVMin()) {
+			return ZERO_VECTOR_2i;
+		}
+
+		return new Vector2i(Math.round((sprite.getWidth() - 0.02f) / (sprite.getUMax() - sprite.getUMin())),
+			Math.round((sprite.getHeight() - 0.02f) / (sprite.getVMax() - sprite.getVMin())));
 	}
 
 	private static boolean isOnGround() {
-		return client.player != null && client.player.onGround();
+		return client.player != null && client.player.onGround;
 	}
 
 	private static boolean isHurt() {
 		if (client.player != null) {
-			return client.player.hurtTime > 0; // Do not use isHurt, that's not what we want!
+			return client.player.damagedTimer > 0; // Do not use isHurt, that's not what we want!
 		} else {
 			return false;
 		}
@@ -201,7 +176,7 @@ public final class CommonUniforms {
 
 	private static boolean isSneaking() {
 		if (client.player != null) {
-			return client.player.isCrouching();
+			return client.player.isSneaking();
 		} else {
 			return false;
 		}
@@ -216,30 +191,25 @@ public final class CommonUniforms {
 	}
 
 	private static Vector3d getSkyColor() {
-		if (client.level == null || client.getCameraEntity() == null) {
+		if (client.world == null || client.getCamera() == null) {
 			return ZERO_VECTOR_3d;
 		}
 
-		var skyColor = client.gameRenderer.mainCamera().attributeProbe()
-			.getValue(EnvironmentAttributes.SKY_COLOR, CapturedRenderingState.INSTANCE.getTickDelta());
+		Vec3d skyColor = client.world.getSkyColor(client.getCamera(), CapturedRenderingState.INSTANCE.getTickDelta());
 
-		return new Vector3d(skyColor.x(), skyColor.y(), skyColor.z());
+		return new Vector3d(skyColor.x, skyColor.y, skyColor.z);
 	}
 
 	static float getBlindness() {
-		Entity cameraEntity = client.getCameraEntity();
+		Entity cameraEntity = client.getCamera();
 
 		if (cameraEntity instanceof LivingEntity) {
-			MobEffectInstance blindness = ((LivingEntity) cameraEntity).getEffect(MobEffects.BLINDNESS);
+			StatusEffectInstance blindness = ((LivingEntity) cameraEntity).getEffectInstance(StatusEffect.BLINDNESS);
 
 			if (blindness != null) {
 				// Guessing that this is what OF uses, based on how vanilla calculates the fog value in FogRenderer
 				// TODO: Add this to ShaderDoc
-				if (blindness.isInfiniteDuration()) {
-					return 1.0f;
-				} else {
-					return Math.clamp(0.0F, 1.0F, blindness.getDuration() / 20.0F);
-				}
+				return Math.clamp(0.0F, 1.0F, blindness.getDuration() / 20.0F);
 			}
 		}
 
@@ -247,63 +217,43 @@ public final class CommonUniforms {
 	}
 
 	static float getDarknessFactor() {
-		Entity cameraEntity = client.getCameraEntity();
-
-		if (cameraEntity instanceof LivingEntity) {
-			MobEffectInstance darkness = ((LivingEntity) cameraEntity).getEffect(MobEffects.DARKNESS);
-
-			if (darkness != null) {
-				return darkness.getBlendFactor((LivingEntity) cameraEntity, CapturedRenderingState.INSTANCE.getTickDelta());
-			}
-		}
-
 		return 0.0F;
 	}
 
 	private static float getPlayerMood() {
-		if (!(client.getCameraEntity() instanceof LocalPlayer)) {
-			return 0.0F;
-		}
-
-		// This should always be 0 to 1 anyways but just making sure
-		return Math.clamp(0.0F, 1.0F, ((LocalPlayer) client.getCameraEntity()).getCurrentMood());
+		return 0.0F;
 	}
 
 	private static float getConstantMood() {
-		if (!(client.getCameraEntity() instanceof LocalPlayer)) {
-			return 0.0F;
-		}
-
-		// This should always be 0 to 1 anyways but just making sure
-		return Math.clamp(0.0F, 1.0F, ((LocalPlayerInterface) client.getCameraEntity()).getCurrentConstantMood());
+		return 0.0F;
 	}
 
 	static float getRainStrength() {
-		if (client.level == null) {
+		if (client.world == null) {
 			return 0f;
 		}
 
 		// Note: Ensure this is in the range of 0 to 1 - some custom servers send out of range values.
-		return Math.clamp(0.0F, 1.0F, client.level.getRainLevel(CapturedRenderingState.INSTANCE.getTickDelta()));
+		return Math.clamp(0.0F, 1.0F, client.world.getRain(CapturedRenderingState.INSTANCE.getTickDelta()));
 	}
 
 	private static Vector2i getEyeBrightness() {
-		if (client.getCameraEntity() == null || client.level == null) {
+		Entity camera = client.getCamera();
+
+		if (camera == null || client.world == null) {
 			return ZERO_VECTOR_2i;
 		}
 
-		Vec3 feet = client.getCameraEntity().position();
-		Vec3 eyes = new Vec3(feet.x, client.getCameraEntity().getEyeY(), feet.z);
-		BlockPos eyeBlockPos = BlockPos.containing(eyes);
+		BlockPos eyeBlockPos = new BlockPos(camera.x, camera.y + camera.getEyeHeight(), camera.z);
 
-		int blockLight = client.level.getBrightness(LightLayer.BLOCK, eyeBlockPos);
-		int skyLight = client.level.getBrightness(LightLayer.SKY, eyeBlockPos);
+		int blockLight = client.world.getBrightness(LightType.BLOCK, eyeBlockPos);
+		int skyLight = client.world.getBrightness(LightType.SKY, eyeBlockPos);
 
 		return new Vector2i(blockLight * 16, skyLight * 16);
 	}
 
 	private static float getNightVision() {
-		Entity cameraEntity = client.getCameraEntity();
+		Entity cameraEntity = client.getCamera();
 
 		if (cameraEntity instanceof LivingEntity livingEntity) {
 
@@ -315,7 +265,8 @@ public final class CommonUniforms {
 				// like Origins.
 				//
 				// See: https://github.com/apace100/apoli/blob/320b0ef547fbbf703de7154f60909d30366f6500/src/main/java/io/github/apace100/apoli/mixin/GameRendererMixin.java#L153
-				float nightVisionStrength = GameRenderer.nightVisionScale(livingEntity, CapturedRenderingState.INSTANCE.getTickDelta());
+				float nightVisionStrength = livingEntity.hasStatusEffect(StatusEffect.NIGHTVISION) ? ((GameRendererAccessor) client.gameRenderer).astatine$getNightVisionScale(
+					livingEntity, CapturedRenderingState.INSTANCE.getTickDelta()) : 0.0F;
 
 				if (nightVisionStrength > 0) {
 					// Just protecting against potential weird mod behavior
@@ -325,19 +276,6 @@ public final class CommonUniforms {
 				// If our injection didn't get applied, a NullPointerException will occur from calling that method if
 				// the entity doesn't currently have night vision. This isn't pretty but it's functional.
 				return 0.0F;
-			}
-		}
-
-		// Conduit power gives the player a sort-of night vision effect when underwater.
-		// This lets existing shaderpacks be compatible with conduit power automatically.
-		//
-		// Yes, this should be the player entity, to match LightTexture.
-		if (client.player != null && client.player.hasEffect(MobEffects.CONDUIT_POWER)) {
-			float underwaterVisibility = client.player.getWaterVision();
-
-			if (underwaterVisibility > 0.0f) {
-				// Just protecting against potential weird mod behavior
-				return Math.clamp(0.0F, 1.0F, underwaterVisibility);
 			}
 		}
 
@@ -351,14 +289,14 @@ public final class CommonUniforms {
 		// I'm not sure what the best way to deal with this is, but the current approach seems to be an acceptable one -
 		// after all, disabling the overlay results in the intended effect of it not really looking like you're
 		// underwater on most shaderpacks. For now, I will leave this as-is, but it is something to keep in mind.
-		FogType submersionType = client.gameRenderer.mainCamera().getFluidInCamera();
+		Entity camera = client.getCamera();
 		boolean isSpectator = client.player != null && client.player.isSpectator();
-		if (submersionType == FogType.WATER) {
+		if (camera == null) {
+			return 0;
+		} else if (camera.isSubmergedIn(Material.WATER)) {
 			return 1;
-		} else if (!isSpectator && submersionType == FogType.LAVA) {
+		} else if (!isSpectator && camera.isSubmergedIn(Material.LAVA)) {
 			return 2;
-		} else if (submersionType == FogType.POWDER_SNOW) {
-			return 3;
 		} else {
 			return 0;
 		}

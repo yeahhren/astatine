@@ -1,37 +1,33 @@
 package net.irisshaders.iris.gui.element.widget;
 
+import net.irisshaders.iris.gui.GuiKeyEvent;
+import net.irisshaders.iris.gui.GuiMouseEvent;
 import net.irisshaders.iris.gui.GuiUtil;
+import net.irisshaders.iris.gui.IrisGraphics;
 import net.irisshaders.iris.gui.NavigationController;
 import net.irisshaders.iris.gui.screen.ShaderPackScreen;
 import net.irisshaders.iris.shaderpack.option.menu.OptionMenuLinkElement;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.navigation.ScreenAxis;
-import net.minecraft.client.gui.navigation.ScreenDirection;
-import net.minecraft.client.input.KeyEvent;
-import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.locale.Language;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.client.render.TextRenderer;
+import net.minecraft.text.Text;
 
 import java.util.Optional;
 
 public class LinkElementWidget extends CommentedElementWidget<OptionMenuLinkElement> {
-	private static final Component ARROW = Component.literal(">");
+	private static final Text ARROW = GuiUtil.literal(">");
 
 	private final String targetScreenId;
-	private final MutableComponent label;
+	private final Text label;
 
 	private NavigationController navigation;
-	private MutableComponent trimmedLabel = null;
+	private Text trimmedLabel = null;
 	private boolean isLabelTrimmed = false;
 
 	public LinkElementWidget(OptionMenuLinkElement element) {
 		super(element);
 
 		this.targetScreenId = element.targetScreenId;
-		this.label = GuiUtil.translateOrDefault(Component.literal(element.targetScreenId), "screen." + element.targetScreenId);
+		this.label = GuiUtil.translateOrDefault(GuiUtil.literal(element.targetScreenId), "screen." + element.targetScreenId);
 	}
 
 	@Override
@@ -40,16 +36,16 @@ public class LinkElementWidget extends CommentedElementWidget<OptionMenuLinkElem
 	}
 
 	@Override
-	public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float tickDelta, boolean hovered) {
+	public void render(IrisGraphics guiGraphics, int mouseX, int mouseY, float tickDelta, boolean hovered) {
 		GuiUtil.bindIrisWidgetsTexture();
-		GuiUtil.drawButton(guiGraphics, bounds.position().x(), bounds.position().y(), bounds.width(), bounds.height(),
+		GuiUtil.drawButton(guiGraphics, bounds.x(), bounds.y(), bounds.width(), bounds.height(),
 			hovered || isFocused(), false);
 
-		Font font = Minecraft.getInstance().font;
+		TextRenderer font = Minecraft.getInstance().textRenderer;
 
 		int maxLabelWidth = bounds.width() - 9;
 
-		if (font.width(this.label) > maxLabelWidth) {
+		if (GuiUtil.width(this.label) > maxLabelWidth) {
 			this.isLabelTrimmed = true;
 		}
 
@@ -57,12 +53,12 @@ public class LinkElementWidget extends CommentedElementWidget<OptionMenuLinkElem
 			this.trimmedLabel = GuiUtil.shortenText(font, this.label, maxLabelWidth);
 		}
 
-		int labelWidth = font.width(this.trimmedLabel);
+		int labelWidth = GuiUtil.width(this.trimmedLabel);
 
 		guiGraphics.text(font, this.trimmedLabel,
-			bounds.getCenterInAxis(ScreenAxis.HORIZONTAL) - (int) (labelWidth * 0.5) - (int) (0.5 * Math.max(
-				labelWidth - (bounds.width() - 18), 0)), bounds.position().y() + 7, 0xFFFFFFFF);
-		guiGraphics.text(font, ARROW, bounds.getBoundInDirection(ScreenDirection.RIGHT) - 9, bounds.position().y() + 7, 0xFFFFFFF);
+			bounds.centerX() - (int) (labelWidth * 0.5) - (int) (0.5 * Math.max(
+				labelWidth - (bounds.width() - 18), 0)), bounds.y() + 7, 0xFFFFFFFF);
+		guiGraphics.text(font, ARROW, bounds.right() - 9, bounds.y() + 7, 0xFFFFFFF);
 
 		if (hovered && this.isLabelTrimmed) {
 			// To prevent other elements from being drawn on top of the tooltip
@@ -72,8 +68,8 @@ public class LinkElementWidget extends CommentedElementWidget<OptionMenuLinkElem
 	}
 
 	@Override
-	public boolean mouseClicked(MouseButtonEvent event, boolean bl2) {
-		if (event.button() == 1) {
+	public boolean mouseClicked(GuiMouseEvent event, boolean bl2) {
+		if (event.button() == GuiMouseEvent.LEFT) {
 			this.navigation.open(targetScreenId);
 			GuiUtil.playButtonClickSound();
 
@@ -83,7 +79,7 @@ public class LinkElementWidget extends CommentedElementWidget<OptionMenuLinkElem
 	}
 
 	@Override
-	public boolean keyPressed(KeyEvent event) {
+	public boolean keyPressed(GuiKeyEvent event) {
 		if (event.isConfirmation()) {
 			this.navigation.open(targetScreenId);
 			GuiUtil.playButtonClickSound();
@@ -95,13 +91,13 @@ public class LinkElementWidget extends CommentedElementWidget<OptionMenuLinkElem
 	}
 
 	@Override
-	public Optional<Component> getCommentTitle() {
+	public Optional<Text> getCommentTitle() {
 		return Optional.of(this.label);
 	}
 
 	@Override
-	public Optional<Component> getCommentBody() {
+	public Optional<Text> getCommentBody() {
 		String translation = "screen." + this.targetScreenId + ".comment";
-		return Optional.ofNullable(Language.getInstance().has(translation) ? Component.translatable(translation) : null);
+		return Optional.ofNullable(GuiUtil.hasTranslation(translation) ? GuiUtil.translatable(translation) : null);
 	}
 }

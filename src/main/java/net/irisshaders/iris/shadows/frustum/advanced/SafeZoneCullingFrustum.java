@@ -1,19 +1,22 @@
 package net.irisshaders.iris.shadows.frustum.advanced;
 
-import net.caffeinemc.mods.sodium.client.render.viewport.frustum.Frustum;
 import net.irisshaders.iris.shadows.frustum.BoxCuller;
-import net.minecraft.world.phys.AABB;
+import net.minecraft.util.math.Box;
 import org.joml.FrustumIntersection;
 import org.joml.Matrix4fc;
 import org.joml.Vector3f;
 
-public class SafeZoneCullingFrustum extends AdvancedShadowCullingFrustum implements Frustum {
+public class SafeZoneCullingFrustum extends AdvancedShadowCullingFrustum {
 	private final BoxCuller distanceCuller;
 
 	public SafeZoneCullingFrustum(Matrix4fc modelViewProjection, Matrix4fc shadowProjection, Vector3f shadowLightVectorFromOrigin,
 		BoxCuller voxelCuller, BoxCuller distanceCuller) {
 		super(modelViewProjection, shadowProjection, shadowLightVectorFromOrigin, voxelCuller);
 		this.distanceCuller = distanceCuller;
+	}
+
+	public BoxCuller getDistanceCuller() {
+		return distanceCuller;
 	}
 
 	@Override
@@ -25,7 +28,7 @@ public class SafeZoneCullingFrustum extends AdvancedShadowCullingFrustum impleme
 	}
 
 	@Override
-	public boolean isVisible(AABB aabb) {
+	public boolean isVisible(Box aabb) {
 		if (distanceCuller != null && distanceCuller.isCulled(aabb)) {
 			return false;
 		}
@@ -50,7 +53,6 @@ public class SafeZoneCullingFrustum extends AdvancedShadowCullingFrustum impleme
 		return isVisible(minX, minY, minZ, maxX, maxY, maxZ);
 	}
 
-	@Override
 	public boolean testAab(float minX, float minY, float minZ, float maxX, float maxY, float maxZ) {
 		if (distanceCuller != null && distanceCuller.isCulledSodium(minX, minY, minZ, maxX, maxY, maxZ)) {
 			return false;
@@ -63,8 +65,6 @@ public class SafeZoneCullingFrustum extends AdvancedShadowCullingFrustum impleme
 		return this.checkCornerVisibility(minX, minY, minZ, maxX, maxY, maxZ) != FrustumIntersection.OUTSIDE;
 	}
 
-
-	@Override
 	public int intersectAab(float minX, float minY, float minZ, float maxX, float maxY, float maxZ) {
 		var distanceResult = this.distanceCuller.intersectAab(minX, minY, minZ, maxX, maxY, maxZ);
 		if (distanceResult == FrustumIntersection.OUTSIDE) {

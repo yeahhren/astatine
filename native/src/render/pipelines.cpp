@@ -217,6 +217,8 @@ namespace at {
             if (length && !read(descriptor.data(), length * 4)) return;
             if (descriptor.empty()) {
                 remap[i] = layouts.terrainLayout();
+            } else if (descriptor.size() == 1 && descriptor[0] == EXTENDED_TERRAIN_DESCRIPTOR) {
+                remap[i] = layouts.extendedTerrainLayout();
             } else if ((descriptor.size() - 1) % 5 == 0) {
                 remap[i] = layouts.registerFormat(descriptor.data(), static_cast<u32>((descriptor.size() - 1) / 5),
                                                   static_cast<u32>(descriptor.back()));

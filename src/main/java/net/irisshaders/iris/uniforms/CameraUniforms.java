@@ -1,8 +1,8 @@
 package net.irisshaders.iris.uniforms;
 
 import net.irisshaders.iris.gl.uniform.UniformHolder;
-import net.irisshaders.iris.helpers.JomlConversions;
 import net.minecraft.client.Minecraft;
+import net.minecraft.entity.Entity;
 import org.joml.Vector3d;
 import org.joml.Vector3f;
 import org.joml.Vector3i;
@@ -35,11 +35,19 @@ public class CameraUniforms {
 
 	private static int getRenderDistanceInBlocks() {
 		// TODO: Should we ask the game renderer for this?
-		return client.options.getEffectiveRenderDistance() * 16;
+		return client.options.viewDistance * 16;
 	}
 
 	public static Vector3d getUnshiftedCameraPosition() {
-		return JomlConversions.fromVec3(client.gameRenderer.mainCamera().position());
+		Entity camera = client.getCamera();
+
+		if (camera == null) {
+			return new Vector3d();
+		}
+
+		double delta = CapturedRenderingState.INSTANCE.getTickDelta();
+		return new Vector3d(camera.prevX + (camera.x - camera.prevX) * delta, camera.prevY + (camera.y - camera.prevY) * delta,
+			camera.prevZ + (camera.z - camera.prevZ) * delta);
 	}
 
 	public static Vector3f getCameraPositionFract(Vector3d originalPos) {

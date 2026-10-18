@@ -167,12 +167,24 @@ namespace at {
         return views[levels];
     }
 
+    u32 Texture::sampledLevels() const {
+        u32 levels = mipmapped() ? lastLevel() + 1 : 1;
+        return std::min(levels, image->levels);
+    }
+
+    VkImageView Texture::sampledView() {
+        return view(sampledLevels());
+    }
+
+    VkSampler Texture::sampler() const {
+        return Renderer::get().context().samplers->get(samplerState());
+    }
+
     u64 Texture::handle() {
         if (!image) return EMPTY;
         Renderer &renderer = Renderer::get();
         SamplerState state = samplerState();
-        u32 levels = mipmapped() ? lastLevel() + 1 : 1;
-        levels = std::min(levels, image->levels);
+        u32 levels = sampledLevels();
         for (int i = 0; i < CACHE_SIZE; i++) {
             if (cachedHandles[i] != EMPTY && cachedLevels[i] == levels && cachedStates[i] == state)
                 return cachedHandles

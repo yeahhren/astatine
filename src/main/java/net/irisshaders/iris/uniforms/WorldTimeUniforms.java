@@ -4,8 +4,7 @@ import net.irisshaders.iris.Iris;
 import net.irisshaders.iris.gl.uniform.UniformHolder;
 import net.irisshaders.iris.shaderpack.DimensionId;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.world.attribute.EnvironmentAttributes;
+import net.minecraft.client.world.ClientWorld;
 
 import java.util.Objects;
 
@@ -23,12 +22,11 @@ public final class WorldTimeUniforms {
 	public static void addWorldTimeUniforms(UniformHolder uniforms) {
 		uniforms.uniform1i(PER_TICK, "worldTime", WorldTimeUniforms::getWorldDayTime)
 			.uniform1i(PER_TICK, "worldDay", WorldTimeUniforms::getWorldDay).uniform1i(PER_TICK, "moonPhase",
-				() -> Minecraft.getInstance().gameRenderer.mainCamera().attributeProbe()
-					.getValue(EnvironmentAttributes.MOON_PHASE, CapturedRenderingState.INSTANCE.getTickDelta()).index());
+				() -> getWorld().getMoonPhase());
 	}
 
 	static int getWorldDayTime() {
-		long timeOfDay = getWorld().getDefaultClockTime();
+		long timeOfDay = getWorld().getTimeOfDay();
 
 		if (Iris.getCurrentDimension() == DimensionId.END || Iris.getCurrentDimension() == DimensionId.NETHER) {
 			// If the dimension is the nether or the end, don't override the fixed time.
@@ -36,19 +34,19 @@ public final class WorldTimeUniforms {
 			return (int) (timeOfDay % 24000L);
 		}
 
-		long dayTime = getWorld().dimensionType().hasFixedTime() ? 0 : (timeOfDay % 24000L);
+		long dayTime = timeOfDay % 24000L;
 
 		return (int) dayTime;
 	}
 
 	private static int getWorldDay() {
-		long timeOfDay = getWorld().getDefaultClockTime();
+		long timeOfDay = getWorld().getTimeOfDay();
 		long day = timeOfDay / 24000L;
 
 		return (int) day;
 	}
 
-	private static ClientLevel getWorld() {
-		return Objects.requireNonNull(Minecraft.getInstance().level);
+	private static ClientWorld getWorld() {
+		return Objects.requireNonNull(Minecraft.getInstance().world);
 	}
 }

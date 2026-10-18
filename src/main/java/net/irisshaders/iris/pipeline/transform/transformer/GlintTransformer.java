@@ -39,7 +39,7 @@ public final class GlintTransformer {
 		if (parameters.type == PatchShaderType.VERTEX) {
 			String uv = ((VanillaParameters) parameters).inputs.isSpecialGlint() ? "iris_UV3" : "iris_UV0";
 			CommonTransformer.addIfNotExists(root, parser, tree, uv, Type.F32VEC2, StorageType.IN);
-			tree.prependMainFunctionBody(parser, "iris_glintCoord = (iris_transforms.TextureMat * vec4(" + uv + ", 0.0, 1.0)).xy;");
+			tree.prependMainFunctionBody(parser, "iris_glintCoord = (" + DrawDataTransformer.ENVIRONMENT + ".textureMatrix0 * vec4(" + uv + ", 0.0, 1.0)).xy;");
 		}
 
 		tree.parseAndInjectNodes(parser, ASTInjectionPoint.END, "bool mc_hasGlint() { return true; }",

@@ -182,6 +182,17 @@ object GLState {
     }
 
     @JvmStatic
+    fun copyMatrix(name: Int, destination: FloatArray) {
+        val stack = when (name) {
+            MODELVIEW_MATRIX -> modelView
+            PROJECTION_MATRIX -> projection
+            TEXTURE_MATRIX -> textures[unit]
+            else -> return
+        }
+        System.arraycopy(stack.data, stack.offset, destination, 0, 16)
+    }
+
+    @JvmStatic
     fun readViewport(destination: Long) {
         for (i in 0 until 4) Memory.putInt(destination + i * 4L, viewport[i])
     }

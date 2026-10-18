@@ -2,7 +2,6 @@ package net.irisshaders.iris.uniforms.custom.cached;
 
 import kroppeb.stareval.function.FunctionReturn;
 import kroppeb.stareval.function.Type;
-import net.irisshaders.iris.gl.IrisRenderSystem;
 import net.irisshaders.iris.gl.uniform.FloatSupplier;
 import net.irisshaders.iris.gl.uniform.UniformUpdateFrequency;
 
@@ -23,10 +22,6 @@ public class FloatCachedUniform extends CachedUniform {
 		return prev != cached;
 	}
 
-	@Override
-	public void push(int location) {
-		IrisRenderSystem.uniform1f(location, this.cached);
-	}
 
 	@Override
 	public void writeTo(FunctionReturn functionReturn) {

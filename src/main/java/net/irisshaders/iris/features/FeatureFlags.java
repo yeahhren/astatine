@@ -1,8 +1,8 @@
 package net.irisshaders.iris.features;
 
-import net.irisshaders.iris.gl.IrisRenderSystem;
-import net.minecraft.client.resources.language.I18n;
+import net.minecraft.client.resource.language.I18n;
 import org.apache.commons.lang3.StringUtils;
+import yt.ren.astatine.Native;
 
 import java.util.List;
 import java.util.Locale;
@@ -11,15 +11,15 @@ import java.util.function.BooleanSupplier;
 public enum FeatureFlags {
 	SEPARATE_HARDWARE_SAMPLERS(() -> true, () -> true),
 	HIGHER_SHADOWCOLOR(() -> true, () -> true),
-	CUSTOM_IMAGES(() -> true, IrisRenderSystem::supportsImageLoadStore),
-	PER_BUFFER_BLENDING(() -> true, IrisRenderSystem::supportsBufferBlending),
-	COMPUTE_SHADERS(() -> true, IrisRenderSystem::supportsCompute),
-	TESSELLATION_SHADERS(() -> true, IrisRenderSystem::supportsTesselation),
+	CUSTOM_IMAGES(() -> true, Native::shaderStores),
+	PER_BUFFER_BLENDING(() -> true, () -> true),
+	COMPUTE_SHADERS(() -> true, () -> true),
+	TESSELLATION_SHADERS(() -> true, Native::tessellationShaders),
 	ENTITY_TRANSLUCENT(() -> true, () -> true),
 	REVERSED_CULLING(() -> true, () -> true),
 	BLOCK_EMISSION_ATTRIBUTE(() -> true, () -> true),
 	CAN_DISABLE_WEATHER(() -> true, () -> true),
-	SSBO(() -> true, IrisRenderSystem::supportsSSBO),
+	SSBO(() -> true, Native::shaderStores),
 	FADE_VARIABLE(() -> true, () -> true),
 	TEXTURE_FILTERING(() -> true, () -> true),
 	UNKNOWN(() -> false, () -> false);
@@ -42,12 +42,12 @@ public enum FeatureFlags {
 
 		if (unsupportedIris) {
 			if (unsupportedHardware) {
-				return I18n.get("iris.unsupported.irisorpc");
+				return I18n.translate("iris.unsupported.irisorpc");
 			}
 
-			return I18n.get("iris.unsupported.iris");
+			return I18n.translate("iris.unsupported.iris");
 		} else if (unsupportedHardware) {
-			return I18n.get("iris.unsupported.pc");
+			return I18n.translate("iris.unsupported.pc");
 		} else {
 			return null;
 		}

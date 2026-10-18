@@ -1,37 +1,62 @@
 package net.irisshaders.iris.platform;
 
-import net.minecraft.client.KeyMapping;
-import net.minecraft.client.renderer.block.BlockAndTintGetter;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.world.level.block.state.BlockState;
+import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.loader.api.SemanticVersion;
+import net.fabricmc.loader.api.VersionParsingException;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.options.GameOptions;
+import net.minecraft.client.options.KeyBinding;
+import org.apache.commons.lang3.ArrayUtils;
 
 import java.nio.file.Path;
-import java.util.ServiceLoader;
 
-public interface IrisPlatformHelpers {
-	IrisPlatformHelpers INSTANCE = ServiceLoader.load(IrisPlatformHelpers.class).findFirst().get();
+public final class IrisPlatformHelpers {
+	public static final IrisPlatformHelpers INSTANCE = new IrisPlatformHelpers();
 
-	static IrisPlatformHelpers getInstance() {
+	private IrisPlatformHelpers() {
+	}
+
+	public static IrisPlatformHelpers getInstance() {
 		return INSTANCE;
 	}
 
-	boolean isModLoaded(String modId);
+	public boolean isModLoaded(String modId) {
+		return FabricLoader.getInstance().isModLoaded(modId);
+	}
 
-	String getVersion();
+	public String getVersion() {
+		return FabricLoader.getInstance().getModContainer("astatine")
+			.map(container -> container.getMetadata().getVersion().getFriendlyString()).orElse("unknown");
+	}
 
-	boolean isDevelopmentEnvironment();
+	public boolean isDevelopmentEnvironment() {
+		return FabricLoader.getInstance().isDevelopmentEnvironment();
+	}
 
-	Path getGameDir();
+	public Path getGameDir() {
+		return FabricLoader.getInstance().getGameDir();
+	}
 
-	Path getConfigDir();
+	public Path getConfigDir() {
+		return FabricLoader.getInstance().getConfigDir();
+	}
 
-	int compareVersions(String currentVersion, String semanticVersion) throws Exception;
+	public int compareVersions(String currentVersion, String semanticVersion) throws VersionParsingException {
+		return SemanticVersion.parse(currentVersion).compareTo(SemanticVersion.parse(semanticVersion));
+	}
 
-	KeyMapping registerKeyBinding(KeyMapping keyMapping);
+	public KeyBinding registerKeyBinding(KeyBinding keyBinding) {
+		GameOptions options = Minecraft.getInstance().options;
 
-	boolean useELS();
+		if (options != null && !ArrayUtils.contains(options.keyBindings, keyBinding)) {
+			options.keyBindings = ArrayUtils.add(options.keyBindings, keyBinding);
+			options.load();
+		}
 
-	BlockState getBlockAppearance(BlockAndTintGetter level, BlockState state, Direction cullFace, BlockPos pos);
+		return keyBinding;
+	}
 
+	public boolean useELS() {
+		return false;
+	}
 }

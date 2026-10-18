@@ -1,5 +1,6 @@
 package net.irisshaders.iris.pipeline.transform.transformer;
 
+import net.irisshaders.iris.pipeline.GraphicsBackend;
 import io.github.douira.glsl_transformer.ast.node.Identifier;
 import io.github.douira.glsl_transformer.ast.node.TranslationUnit;
 import io.github.douira.glsl_transformer.ast.node.declaration.FunctionDeclaration;
@@ -59,7 +60,11 @@ public class DepthTransformer {
 		Set<String> textureOverrides) {
 		Set<String> depthSamplers = new HashSet<>(DEPTH_SAMPLERS);
 		depthSamplers.removeAll(textureOverrides);
-		invertDepthReads(t, tree, root, depthSamplers);
+		if (GraphicsBackend.isReversedDepth()) {
+			invertDepthReads(t, tree, root, depthSamplers);
+		} else {
+			shadow = true;
+		}
 		if (shadow && root.process(root.nodeIndex.getStream(FunctionDefinition.class)
 				.filter(definition -> definition.getFunctionPrototype().getName().getName().equals("iris_undoRevZ")),
 			FunctionDefinition::detachAndDelete)) {
@@ -79,6 +84,13 @@ public class DepthTransformer {
 	}
 
 	public static void transformPosition(ASTParser t, Map<PatchShaderType, TranslationUnit> trees, boolean zZeroToOne, boolean shadow) {
+		for (PatchShaderType type : new PatchShaderType[]{PatchShaderType.VERTEX, PatchShaderType.TESS_EVAL, PatchShaderType.GEOMETRY}) {
+			TranslationUnit stage = trees.get(type);
+			if (stage != null) {
+				stage.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "invariant gl_Position;");
+			}
+		}
+		shadow |= !GraphicsBackend.isReversedDepth();
 		if (shadow && !zZeroToOne) {
 			return;
 		}

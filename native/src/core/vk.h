@@ -89,6 +89,13 @@
     X(vkCmdSetLineWidth) \
     X(vkCmdSetDepthBias) \
     X(vkCmdBindDescriptorSets) \
+    X(vkCmdPushConstants) \
+    X(vkCreateComputePipelines) \
+    X(vkCmdDispatch) \
+    X(vkCmdDispatchIndirect) \
+    X(vkCreateBufferView) \
+    X(vkDestroyBufferView) \
+    X(vkCmdFillBuffer) \
     X(vkCmdBindIndexBuffer) \
     X(vkCmdBindVertexBuffers) \
     X(vkCmdDraw) \
@@ -100,6 +107,8 @@
     X(vkCmdCopyBufferToImage) \
     X(vkCmdCopyImageToBuffer) \
     X(vkCmdClearAttachments) \
+    X(vkCmdClearColorImage) \
+    X(vkCmdClearDepthStencilImage) \
     X(vkCmdPipelineBarrier) \
     X(vkCreateQueryPool) \
     X(vkDestroyQueryPool) \

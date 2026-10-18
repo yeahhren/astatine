@@ -13,6 +13,7 @@ import io.github.douira.glsl_transformer.ast.transform.JobParameters;
 import io.github.douira.glsl_transformer.ast.transform.SingleASTTransformer;
 import io.github.douira.glsl_transformer.util.LRUCache;
 import net.irisshaders.iris.backend.PipelineState;
+import net.irisshaders.iris.pipeline.transform.transformer.DrawDataTransformer;
 import net.irisshaders.iris.pipeline.transform.vulkan.VulkanGlsl;
 
 import java.util.ArrayList;
@@ -215,6 +216,20 @@ public final class WorldShaderTransformer {
 			}
 		}
 
+		if (tree.getRoot().identifierIndex.has("iris_InputMask")) {
+			int mask = (available.containsKey("Color") ? 1 : 0) | (available.containsKey("UV0") ? 2 : 0) | (available.containsKey("UV2") ? 4 : 0)
+				| (available.containsKey("Normal") ? 8 : 0);
+
+			for (var external : List.copyOf(tree.getChildren())) {
+				if (external instanceof DeclarationExternalDeclaration wrapper && wrapper.getDeclaration() instanceof TypeAndInitDeclaration declaration
+					&& declaration.getMembers().stream().anyMatch(member -> member.getName().getName().equals("iris_InputMask"))) {
+					wrapper.detachAndDelete();
+				}
+			}
+
+			tree.parseAndInjectNode(parser, ASTInjectionPoint.BEFORE_DECLARATIONS, "const int iris_InputMask = " + mask + ";");
+		}
+
 		var result = new EnumMap<PatchShaderType, String>(PatchShaderType.class);
 		result.putAll(sources);
 		result.put(PatchShaderType.VERTEX, ASTPrinter.print(PrintType.INDENTED, tree));
@@ -241,9 +256,9 @@ public final class WorldShaderTransformer {
 			var tree = parser.parseSeparateTranslationUnit(source);
 			var root = tree.getRoot();
 			boolean sodium = root.identifierIndex.has("u_Globals");
-			String model = sodium ? "u_ModelViewMatrix" : "iris_transforms.ModelViewMat";
+			String model = sodium ? "u_ModelViewMatrix" : DrawDataTransformer.MODEL_VIEW;
 			String projectionFunction = root.identifierIndex.has("iris_toMinusOneToOne") ? "iris_toMinusOneToOne" : "iris_undoRevZ";
-			String projection = sodium ? "u_ProjectionMatrix" : "iris_ProjMat";
+			String projection = sodium ? "u_ProjectionMatrix" : DrawDataTransformer.PROJECTION;
 			var replacements = Map.of("iris_NormalMat", "transpose(inverse(mat3(" + model + ")))", "iris_ModelViewMatInverse",
 				"inverse(" + model + ")", "iris_ProjMatInverse", "inverse(" + projectionFunction + "(" + projection + "))");
 

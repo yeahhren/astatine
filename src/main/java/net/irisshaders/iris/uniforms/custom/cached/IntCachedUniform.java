@@ -1,6 +1,5 @@
 package net.irisshaders.iris.uniforms.custom.cached;
 
-import com.mojang.renderpearl.backend.opengl.GlStateManager;
 import kroppeb.stareval.function.FunctionReturn;
 import kroppeb.stareval.function.Type;
 import net.irisshaders.iris.gl.uniform.UniformUpdateFrequency;
@@ -24,10 +23,6 @@ public class IntCachedUniform extends CachedUniform {
 		return prev != cached;
 	}
 
-	@Override
-	public void push(int location) {
-		GlStateManager._glUniform1i(location, this.cached);
-	}
 
 	@Override
 	public void writeTo(FunctionReturn functionReturn) {

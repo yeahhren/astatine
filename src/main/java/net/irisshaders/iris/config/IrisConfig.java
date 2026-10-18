@@ -1,21 +1,14 @@
 package net.irisshaders.iris.config;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import net.irisshaders.iris.Iris;
 import net.irisshaders.iris.gui.option.IrisVideoSettings;
 import net.irisshaders.iris.pathways.colorspace.ColorSpace;
-import net.minecraft.resources.Identifier;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
 
@@ -24,13 +17,7 @@ import java.util.Properties;
  */
 public class IrisConfig {
 	private static final String COMMENT = "This file stores configuration options for Iris, such as the currently active shaderpack";
-	private static final Gson GSON = new Gson();
 	private final Path propertiesPath;
-	private final Path excludedPath;
-	/**
-	 * What shaders should be nuked.
-	 */
-	private final List<Identifier> shadersToSkip = new ArrayList<>();
 	/**
 	 * The path to the current shaderpack. Null if the internal shaderpack is being used.
 	 */
@@ -53,7 +40,7 @@ public class IrisConfig {
 	private boolean disableUpdateMessage;
 	private boolean hasRunVulkan;
 
-	public IrisConfig(Path propertiesPath, Path excluded) {
+	public IrisConfig(Path propertiesPath) {
 		shaderPackName = null;
 		enableShaders = true;
 		allowUnknownShaders = false;
@@ -61,7 +48,6 @@ public class IrisConfig {
 		disableUpdateMessage = false;
 		this.hasRunVulkan = false;
 		this.propertiesPath = propertiesPath;
-		this.excludedPath = excluded;
 	}
 
 	/**
@@ -148,24 +134,6 @@ public class IrisConfig {
 	 */
 
 	public void load() throws IOException {
-		if (Files.exists(excludedPath)) {
-			JsonArray json = JsonParser.parseString(Files.readString(excludedPath)).getAsJsonObject().getAsJsonArray("excluded");
-			for (int i = 0; i < json.size(); i++) {
-				Identifier resource = Identifier.tryParse(json.get(i).getAsString());
-				if (resource == null) {
-					Iris.logger.warn("Unknown shader " + json.get(i).getAsString());
-				}
-
-				shadersToSkip.add(resource);
-			}
-		} else {
-			JsonObject defaultV = new JsonObject();
-			JsonArray array = new JsonArray();
-			array.add("put:valuesHere");
-			defaultV.add("excluded", array);
-			Files.writeString(excludedPath, GSON.toJson(defaultV));
-		}
-
 		if (!Files.exists(propertiesPath)) {
 			return;
 		}
@@ -222,10 +190,6 @@ public class IrisConfig {
 
 	public boolean shouldAllowUnknownShaders() {
 		return allowUnknownShaders;
-	}
-
-	public boolean shouldSkip(Identifier value) {
-		return shadersToSkip.contains(value); // TODO
 	}
 
 	public void setUnknown(boolean b) throws IOException {

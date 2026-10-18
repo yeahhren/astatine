@@ -1,6 +1,6 @@
 package net.irisshaders.iris.shadows.frustum;
 
-import net.minecraft.world.phys.AABB;
+import net.minecraft.util.math.Box;
 import org.joml.FrustumIntersection;
 
 public class BoxCuller {
@@ -17,6 +17,10 @@ public class BoxCuller {
 		this.maxDistance = maxDistance;
 	}
 
+	public double getMaxDistance() {
+		return maxDistance;
+	}
+
 	public void setPosition(double cameraX, double cameraY, double cameraZ) {
 		this.minAllowedX = cameraX - maxDistance;
 		this.maxAllowedX = cameraX + maxDistance;
@@ -26,7 +30,7 @@ public class BoxCuller {
 		this.maxAllowedZ = cameraZ + maxDistance;
 	}
 
-	public boolean isCulled(AABB aabb) {
+	public boolean isCulled(Box aabb) {
 		return isCulled((float) aabb.minX, (float) aabb.minY, (float) aabb.minZ, (float) aabb.maxX, (float) aabb.maxY, (float) aabb.maxZ);
 	}
 
@@ -54,7 +58,6 @@ public class BoxCuller {
 		return maxZ < -this.maxDistance || minZ > this.maxDistance;
 	}
 
-
 	public int intersectAab(double minX, double minY, double minZ, double maxX, double maxY, double maxZ) {
 		if (maxX < -this.maxDistance || minX > this.maxDistance) {
 			return FrustumIntersection.OUTSIDE;
@@ -74,7 +77,6 @@ public class BoxCuller {
 
 		return FrustumIntersection.INTERSECT;
 	}
-
 
 	@Override
 	public String toString() {

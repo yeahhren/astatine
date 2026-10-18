@@ -3,3 +3,35 @@ Astatine includes code from the following projects.
 Iris (https://github.com/IrisShaders/Iris)
   Files: src/main/java/net/irisshaders/**, src/main/java/kroppeb/**, src/main/resources/assets/iris/**
   License: GNU Lesser General Public License v3.0, see third_party_licenses/LGPL.txt
+
+Ithaka Digraph (Odysseus Software GmbH)
+  Files: src/main/java/de/odysseus/**
+  License: Apache License 2.0, see third_party_licenses/Apache-2.0.txt
+
+Astatine bundles the following libraries in its jar.
+
+glsl-transformer (https://github.com/IrisShaders/glsl-transformer)
+  License: GNU Affero General Public License v3.0, see LICENSE.md
+
+ANTLR 4 runtime (https://github.com/antlr/antlr4), Copyright (c) 2012-2022 The ANTLR Project
+  License: BSD 3-Clause License, see third_party_licenses/BSD-3-Clause.txt
+
+JCPP (https://github.com/shevek/jcpp), Copyright (c) Anarres
+  License: Apache License 2.0, see third_party_licenses/Apache-2.0.txt
+
+JOML (https://github.com/JOML-CI/JOML), Copyright (c) 2015-2024 JOML
+  License: MIT License, see third_party_licenses/MIT.txt
+
+LWJGL Vulkan, VMA and shaderc bindings (https://github.com/LWJGL/lwjgl3), Copyright (c) 2012-present Lightweight Java Game Library
+  License: BSD 3-Clause License, see third_party_licenses/BSD-3-Clause.txt
+
+Vulkan Memory Allocator (https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator), Copyright (c) 2017-2025 Advanced Micro Devices, Inc.
+  License: MIT License, see third_party_licenses/MIT.txt
+
+shaderc (https://github.com/google/shaderc), Copyright (c) 2015-2025 The shaderc Authors, including glslang and SPIRV-Tools
+  License: Apache License 2.0, see third_party_licenses/Apache-2.0.txt
+
+The native library statically links the following projects.
+
+glslang (https://github.com/KhronosGroup/glslang), Copyright (c) The Khronos Group Inc. and contributors
+  License: several licenses depending on the file, see third_party_licenses/glslang/LICENSE.txt and third_party_licenses/glslang/

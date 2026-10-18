@@ -9,22 +9,20 @@ import net.irisshaders.iris.shaderpack.option.Profile;
 import net.irisshaders.iris.shaderpack.option.ProfileSet;
 import net.irisshaders.iris.shaderpack.option.menu.OptionMenuProfileElement;
 import net.irisshaders.iris.shaderpack.option.values.OptionValues;
-import net.minecraft.ChatFormatting;
+import net.irisshaders.iris.gui.IrisGraphics;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.text.Formatting;
+import net.minecraft.text.Text;
 
 import java.util.Optional;
 
 public class ProfileElementWidget extends BaseOptionElementWidget<OptionMenuProfileElement> {
-	private static final MutableComponent PROFILE_LABEL = Component.translatable("options.iris.profile");
-	private static final MutableComponent PROFILE_CUSTOM = Component.translatable("options.iris.profile.custom")
-		.withStyle(ChatFormatting.YELLOW);
+	private static final Text PROFILE_LABEL = GuiUtil.translatable("options.iris.profile");
+	private static final Text PROFILE_CUSTOM = GuiUtil.withStyle(GuiUtil.translatable("options.iris.profile.custom"), Formatting.YELLOW);
 
 	private Profile next;
 	private Profile previous;
-	private Component profileLabel;
+	private Text profileLabel;
 
 	public ProfileElementWidget(OptionMenuProfileElement element) {
 		super(element);
@@ -45,24 +43,24 @@ public class ProfileElementWidget extends BaseOptionElementWidget<OptionMenuProf
 		this.previous = result.previous;
 		Optional<String> profileName = result.current.map(p -> p.name);
 
-		this.profileLabel = profileName.map(name -> GuiUtil.translateOrDefault(Component.literal(name), "profile." + name))
+		this.profileLabel = profileName.map(name -> GuiUtil.translateOrDefault(GuiUtil.literal(name), "profile." + name))
 			.orElse(PROFILE_CUSTOM);
 	}
 
 	@Override
-	public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float tickDelta, boolean hovered) {
-		this.updateRenderParams(bounds.width() - (Minecraft.getInstance().font.width(PROFILE_LABEL) + 16));
+	public void render(IrisGraphics guiGraphics, int mouseX, int mouseY, float tickDelta, boolean hovered) {
+		this.updateRenderParams(bounds.width() - (GuiUtil.width(PROFILE_LABEL) + 16));
 
 		this.renderOptionWithValue(guiGraphics, hovered || isFocused());
 	}
 
 	@Override
-	protected Component createValueLabel() {
+	protected Text createValueLabel() {
 		return this.profileLabel;
 	}
 
 	@Override
-	public Optional<Component> getCommentTitle() {
+	public Optional<Text> getCommentTitle() {
 		return Optional.of(PROFILE_LABEL);
 	}
 

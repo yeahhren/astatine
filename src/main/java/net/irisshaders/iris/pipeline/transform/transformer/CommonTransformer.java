@@ -1,6 +1,6 @@
 package net.irisshaders.iris.pipeline.transform.transformer;
 
-import com.mojang.blaze3d.systems.RenderSystem;
+import net.irisshaders.iris.pipeline.GraphicsBackend;
 import io.github.douira.glsl_transformer.ast.node.Identifier;
 import io.github.douira.glsl_transformer.ast.node.TranslationUnit;
 import io.github.douira.glsl_transformer.ast.node.declaration.DeclarationMember;
@@ -27,6 +27,7 @@ import io.github.douira.glsl_transformer.ast.transform.Template;
 import io.github.douira.glsl_transformer.parser.ParseShape;
 import io.github.douira.glsl_transformer.util.Type;
 import net.irisshaders.iris.gl.blending.AlphaTest;
+import net.irisshaders.iris.gl.blending.AlphaTests;
 import net.irisshaders.iris.gl.shader.ShaderType;
 import net.irisshaders.iris.pipeline.transform.PatchShaderType;
 import net.irisshaders.iris.pipeline.transform.parameter.Parameters;
@@ -92,7 +93,7 @@ public class CommonTransformer {
 	}
 
 	static void injectForwardZProjection(ASTParser t, TranslationUnit tree) {
-		DepthTransformer.injectForwardZProjection(t, tree, RenderSystem.getDevice().getDeviceInfo().isZZeroToOne());
+		DepthTransformer.injectForwardZProjection(t, tree, GraphicsBackend.isZZeroToOne());
 	}
 
 	public static void transformDepth(ASTParser t, TranslationUnit tree, Root root, Parameters parameters) {
@@ -103,11 +104,11 @@ public class CommonTransformer {
 			textureOverrides.add("gdepthtex");
 		}
 		DepthTransformer.transform(t, tree, root, parameters.type, isShadowPass(parameters, parameters.name),
-			RenderSystem.getDevice().getDeviceInfo().isZZeroToOne(), textureOverrides);
+			GraphicsBackend.isZZeroToOne(), textureOverrides);
 	}
 
 	public static void transformDepthPosition(ASTParser t, Map<PatchShaderType, TranslationUnit> trees, Parameters parameters) {
-		DepthTransformer.transformPosition(t, trees, RenderSystem.getDevice().getDeviceInfo().isZZeroToOne(),
+		DepthTransformer.transformPosition(t, trees, GraphicsBackend.isZZeroToOne(),
 			isShadowPass(parameters, parameters.name));
 	}
 
@@ -347,7 +348,12 @@ public class CommonTransformer {
 
 			// insert alpha test for iris_FragData0 in the fragment shader
 			if ((parameters.getAlphaTest() != AlphaTest.ALWAYS && !core) && replaceIndexesSet.contains(0L)) {
-				tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "uniform float iris_currentAlphaTest;");
+				if (parameters.getAlphaTest().equals(AlphaTests.DRAW_STATE) && (parameters instanceof VanillaParameters || parameters instanceof SodiumParameters)) {
+					tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS,
+						"float iris_currentAlphaTest = (" + DrawDataTransformer.ENVIRONMENT + ".flags.x & 512) != 0 ? " + DrawDataTransformer.ENVIRONMENT + ".alphaReference.x : -1.0;");
+				} else {
+					tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "uniform float iris_currentAlphaTest;");
+				}
 				tree.appendMainFunctionBody(t, parameters.getAlphaTest().toExpression("iris_FragData0.a", "iris_currentAlphaTest", "	"));
 			}
 		}
@@ -391,7 +397,9 @@ public class CommonTransformer {
 		// passes. A shader that relies on this behavior is SEUS v11 - it reads
 		// gl_Fog.color and breaks if it is not properly defined.
 		root.rename("gl_Fog", "irisInt_Fog");
-		if (!(parameters instanceof VanillaParameters)) {
+		if (parameters instanceof SodiumParameters) {
+			DrawDataTransformer.injectFog(t, tree);
+		} else if (!(parameters instanceof VanillaParameters)) {
 			tree.parseAndInjectNodes(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "uniform float iris_FogDensity;",
 				"uniform float iris_FogStart;", "uniform float iris_FogEnd;", "uniform vec4 iris_FogColor;",
 				"struct iris_FogParameters {" + "vec4 color;" + "float density;" + "float start;" + "float end;" + "float scale;" + "};",

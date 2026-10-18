@@ -31,17 +31,13 @@ import net.irisshaders.iris.helpers.FakeChainedJsonException;
 import net.irisshaders.iris.helpers.OptionalBoolean;
 import net.irisshaders.iris.helpers.Tri;
 import net.irisshaders.iris.layer.GbufferPrograms;
-import net.irisshaders.iris.mixin.LevelRendererAccessor;
 import net.irisshaders.iris.pathways.CenterDepthSampler;
 import net.irisshaders.iris.pathways.HorizonRenderer;
 import net.irisshaders.iris.pathways.colorspace.ColorSpace;
 import net.irisshaders.iris.pathways.colorspace.ColorSpaceConverter;
 import net.irisshaders.iris.pathways.colorspace.ColorSpaceFragmentConverter;
-import net.irisshaders.iris.pbr.TextureTracker;
 import net.irisshaders.iris.pbr.format.TextureFormat;
 import net.irisshaders.iris.pbr.format.TextureFormatLoader;
-import net.irisshaders.iris.pbr.texture.PBRTextureHolder;
-import net.irisshaders.iris.pbr.texture.PBRTextureManager;
 import net.irisshaders.iris.pbr.texture.PBRType;
 import net.irisshaders.iris.pipeline.programs.ComputeProgram;
 import net.irisshaders.iris.pipeline.programs.ExtendedShader;
@@ -95,24 +91,22 @@ import net.irisshaders.iris.uniforms.VanillaUniforms;
 import net.irisshaders.iris.uniforms.buffer.FrameUniforms;
 import net.irisshaders.iris.uniforms.builtin.BuiltinReplacementUniforms;
 import net.irisshaders.iris.uniforms.custom.CustomUniforms;
-import net.irisshaders.iris.vertices.sodium.terrain.FormatAnalyzer;
-import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.TextureFilteringMethod;
-import net.minecraft.client.gui.components.debug.DebugScreenDisplayer;
-import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.world.level.dimension.DimensionType;
 import org.apache.commons.lang3.StringUtils;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Vector3d;
 import org.joml.Vector4f;
+import yt.ren.astatine.shaderpack.PbrTextures;
+import yt.ren.astatine.vulkan.MainTarget;
+import yt.ren.astatine.vulkan.NativeTextures;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -194,9 +188,9 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 	private boolean isRenderingWorld;
 	private boolean isMainBound;
 	private boolean shouldBindPBR;
-	private AbstractTexture currentNormalTexture;
+	private GpuTextureView currentNormalTexture;
 	private GpuSampler normalNativeSampler, specularNativeSampler;
-	private AbstractTexture currentSpecularTexture;
+	private GpuTextureView currentSpecularTexture;
 	private ColorSpace currentColorSpace;
 	private GlSampler normalSampler = GlSampler.MIPPED_NEAREST, specularSampler = GlSampler.MIPPED_NEAREST;
 	private int albedoTex;
@@ -233,9 +227,9 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 			this.occlusionCulling = programSet.getPackDirectives().shouldUseOcclusionCulling();
 			this.resolver = new ProgramFallbackResolver(programSet);
 			this.pack = programSet.getPack();
-			WorldRenderingSettings.INSTANCE.setVertexFormat(FormatAnalyzer.createFormat(true, true, true, true));
+			WorldRenderingSettings.INSTANCE.setExtendedVertexFormat(true);
 
-			RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+			RenderTarget main = MainTarget.get();
 			GpuTexture depthTexture = main.getDepthTexture();
 			DepthBufferFormat depthBufferFormat = DepthBufferFormat.fromMojang(depthTexture.getFormat());
 
@@ -265,7 +259,7 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 				}
 			}
 
-			this.clearImages = this.customImages.stream().filter(CustomImage::shouldClear).collect(ImmutableList.toImmutableList());
+			this.clearImages = ImmutableList.copyOf(this.customImages.stream().filter(CustomImage::shouldClear).toList());
 
 			if (programSet.getPackDirectives().getParticleRenderingSettings() != ParticleRenderingSettings.UNSET) {
 				this.particleRenderingSettings = programSet.getPackDirectives().getParticleRenderingSettings();
@@ -871,7 +865,7 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 
 	@Override
 	public int getCurrentNormalTexture() {
-		return this.currentNormalTexture == null ? 0 : TextureTracker.INSTANCE.identity(this.currentNormalTexture.getTexture());
+		return this.currentNormalTexture == null ? 0 : System.identityHashCode(this.currentNormalTexture.texture());
 	}
 
 	public GlSampler getNormalSampler() {
@@ -884,20 +878,18 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 
 	@Override
 	public int getCurrentSpecularTexture() {
-		return this.currentSpecularTexture == null ? 0 : TextureTracker.INSTANCE.identity(this.currentSpecularTexture.getTexture());
+		return this.currentSpecularTexture == null ? 0 : System.identityHashCode(this.currentSpecularTexture.texture());
 	}
 
 	@Override
 	public void onSetAlbedoTex(GpuTextureView id) {
 		if (id != null) {
-			TextureTracker.INSTANCE.bindTexture(id.texture());
-			this.albedoTex = TextureTracker.INSTANCE.identity(id.texture());
-			int maxAnisotropy = Minecraft.getInstance().options.textureFiltering()
-				.get() == TextureFilteringMethod.ANISOTROPIC ? Minecraft.getInstance().options.maxAnisotropyValue() : 1;
+			this.albedoTex = System.identityHashCode(id.texture());
+			int maxAnisotropy = 1;
 			if (shouldBindPBR && isRenderingWorld) {
-				PBRTextureHolder pbrHolder = PBRTextureManager.INSTANCE.getOrLoadHolder(id.texture());
-				currentNormalTexture = pbrHolder.normalTexture();
-				currentSpecularTexture = pbrHolder.specularTexture();
+				long[] companions = PbrTextures.companions(NativeTextures.handle(id));
+				currentNormalTexture = companions == null || companions[0] == 0L ? null : NativeTextures.view(companions[0]);
+				currentSpecularTexture = companions == null || companions[1] == 0L ? null : NativeTextures.view(companions[1]);
 
 				TextureFormat textureFormat = TextureFormatLoader.getFormat();
 				this.normalSampler = this.specularSampler = GlSampler.MIPPED_NEAREST_NEAREST;
@@ -906,7 +898,6 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 				this.specularNativeSampler = textureFormat == null || textureFormat.canInterpolateValues(
 					PBRType.SPECULAR) ? IrisSamplers.getTerrainCache(maxAnisotropy) : null;
 
-				PBRTextureManager.notifyPBRTexturesChanged();
 			}
 		}
 	}
@@ -921,11 +912,9 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 				BlockMaterialMapping.createBlockStateIdMap(pack.getIdMap().getBlockProperties(), pack.getIdMap().getTagEntries()));
 			WorldRenderingSettings.INSTANCE.setBlockTypeIds(
 				BlockMaterialMapping.createBlockTypeMap(pack.getIdMap().getBlockRenderTypeMap()));
-			Minecraft.getInstance().levelExtractor.allChanged();
+			Minecraft.getInstance().worldRenderer.reload();
 			initializedBlockIds = true;
 		}
-
-		PBRTextureManager.INSTANCE.onNewFrame();
 
 		this.updateNotifier.onNewFrame();
 
@@ -971,7 +960,7 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 			}
 		}
 
-		RenderTarget main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+		RenderTarget main = MainTarget.get();
 
 		GpuTexture depthTexture = main.getDepthTexture();
 		DepthBufferFormat depthBufferFormat = DepthBufferFormat.fromMojang(depthTexture.getFormat());
@@ -1042,20 +1031,20 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 	}
 
 	@Override
-	public void renderShadows(LevelRendererAccessor worldRenderer, Camera playerCamera, CameraRenderState renderState) {
+	public void renderShadows(float tickDelta) {
 		if (shadowRenderer != null) {
-			this.shadowRenderer.renderShadows(worldRenderer, playerCamera, renderState);
+			this.shadowRenderer.renderShadows(tickDelta);
 		}
 
 		prepareRenderer.renderAll();
 	}
 
 	@Override
-	public void addDebugText(DebugScreenDisplayer messages) {
+	public void addDebugText(List<String> messages) {
 		if (this.shadowRenderer != null) {
 			shadowRenderer.addDebugText(messages);
 		} else {
-			messages.addLine("[Iris] Shadow Maps: not used by shader pack");
+			messages.add("[Iris] Shadow Maps: not used by shader pack");
 		}
 	}
 
@@ -1098,7 +1087,7 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 
 	@Override
 	public void finalizeGameRendering() {
-		this.colorSpaceConverter.process(Minecraft.getInstance().gameRenderer.mainRenderTarget().getColorTextureView());
+		this.colorSpaceConverter.process(MainTarget.get().getColorTextureView());
 	}
 
 	@Override
@@ -1208,13 +1197,11 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 	}
 
 	public GpuTextureView normalTextureView() {
-		return (this.currentNormalTexture == null ? PBRTextureManager.INSTANCE.getDefaultHolder()
-			.normalTexture() : this.currentNormalTexture).getTextureView();
+		return this.currentNormalTexture == null ? NativeTextures.view(PbrTextures.defaultNormals()) : this.currentNormalTexture;
 	}
 
 	public GpuTextureView specularTextureView() {
-		return (this.currentSpecularTexture == null ? PBRTextureManager.INSTANCE.getDefaultHolder()
-			.specularTexture() : this.currentSpecularTexture).getTextureView();
+		return this.currentSpecularTexture == null ? NativeTextures.view(PbrTextures.defaultSpecular()) : this.currentSpecularTexture;
 	}
 
 	public ShaderMap getShaderMap() {
@@ -1311,16 +1298,12 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 	public void onBeginClear() {
 		setPhase(WorldRenderingPhase.SKY);
 
-		DimensionType.Skybox skyType = Minecraft.getInstance().level.dimensionType().skybox();
-
-		if (shouldRenderSkyDisc && (skyType == DimensionType.Skybox.OVERWORLD || Minecraft.getInstance().level.dimensionType()
-			.hasSkyLight())) {
+		if (shouldRenderSkyDisc && Minecraft.getInstance().world.dimension.isNatural()) {
 			Vector3d fogColor3 = CapturedRenderingState.INSTANCE.getFogColor();
 
 			Vector4f fogColor = new Vector4f((float) fogColor3.x, (float) fogColor3.y, (float) fogColor3.z, 1.0F);
 
-			horizonRenderer.renderHorizon(CapturedRenderingState.INSTANCE.getGbufferModelView(),
-				CapturedRenderingState.INSTANCE.getGbufferProjection(), fogColor);
+			horizonRenderer.renderHorizon(fogColor);
 		}
 	}
 

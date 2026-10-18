@@ -39,30 +39,17 @@ public class SodiumCoreTransformer {
 
 			root.replaceReferenceExpressions(t, "vaUV0", "_vert_tex_diffuse_coord");
 			root.replaceReferenceExpressions(t, "vaUV1", "ivec2(0, 10)");
-			root.replaceReferenceExpressions(t, "vaUV2", "a_LightAndData.xy");
+			root.replaceReferenceExpressions(t, "vaUV2", "ivec2(_vert_tex_light_coord)");
 
 			root.replaceReferenceExpressions(t, "textureMatrix", "mat4(1.0)");
-			SodiumTransformer.replaceMidTexCoord(t, tree, root, 1.0f / 32768.0f);
+			SodiumTransformer.replaceMidTexCoord(t, tree, root, 1.0f);
 			SodiumTransformer.replaceMCEntity(t, tree, root);
 			CommonTransformer.replaceMidBlock(t, tree, root, parameters);
 
 			SodiumTransformer.injectVertInit(t, tree, root, parameters, needsNormal);
 		}
 
-		tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, """
-			layout(std140) uniform u_Globals {
-			    mat4 u_ProjectionMatrix;
-			    mat4 u_ModelViewMatrix;
-
-			    vec4 u_FogColor;
-			    vec2 u_EnvironmentFog;
-			    vec2 u_RenderFog;
-
-			    vec2 u_TexelSize;
-			    vec2 u_TexCoordShrink;
-
-			    float u_FadePeriodInv;
-			    bool u_UseRGSS;
-			};""");
+		DrawDataTransformer.inject(t, tree, root, parameters);
+		SodiumTransformer.replaceTerrainNames(t, root);
 	}
 }

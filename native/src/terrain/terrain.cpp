@@ -150,6 +150,17 @@ namespace at::terrain {
 
     void Terrain::configure(i32 distance) {
         clear();
+        u32 units = 1;
+        {
+            std::lock_guard guard(tablesLock);
+            if (tables) units = tables->vertexUnits;
+        }
+        if (units != arenaUnits) {
+            std::shared_ptr<VertexArena> retired(arena.release());
+            renderer.defer([retired] {});
+            arena = std::make_unique<VertexArena>(renderer, static_cast<u64>(units) * sizeof(Vertex));
+            arenaUnits = units;
+        }
         viewDistance = std::max(distance, 2);
         size = viewDistance * 2 + 1;
         sections.clear();
@@ -346,9 +357,13 @@ namespace at::terrain {
     }
 
     bool Terrain::frustumVisible(const Section &section) const {
-        auto minX = static_cast<float>(section.x * 16 - cameraX);
-        auto minY = static_cast<float>(section.y * 16 - cameraY);
-        auto minZ = static_cast<float>(section.z * 16 - cameraZ);
+        return frustumVisible(section, cameraX, cameraY, cameraZ);
+    }
+
+    bool Terrain::frustumVisible(const Section &section, double originX, double originY, double originZ) const {
+        auto minX = static_cast<float>(section.x * 16 - originX);
+        auto minY = static_cast<float>(section.y * 16 - originY);
+        auto minZ = static_cast<float>(section.z * 16 - originZ);
         float maxX = minX + 16.0f, maxY = minY + 16.0f, maxZ = minZ + 16.0f;
         for (const auto &plane: planes) {
             float x = plane[0] > 0 ? maxX : minX;
@@ -448,7 +463,8 @@ namespace at::terrain {
         mat4::multiply(clip, renderer.state.modelView.top());
         bool same = !listDirty && list == activeList && std::memcmp(clip, lastClip, sizeof(clip)) == 0 &&
                     parameters.x == lastParameters.x && parameters.y == lastParameters.y &&
-                    parameters.z == lastParameters.z && parameters.eyeHeight == lastParameters.eyeHeight;
+                    parameters.z == lastParameters.z && parameters.eyeHeight == lastParameters.eyeHeight &&
+                    parameters.frustumCull == lastParameters.frustumCull;
         if (same) return;
         std::memcpy(lastClip, clip, sizeof(clip));
         lastParameters = parameters;
@@ -460,7 +476,7 @@ namespace at::terrain {
         visible.clear();
         for (u32 slot: *list) {
             Section &section = sections[slot];
-            if (!section.valid || !frustumVisible(section)) continue;
+            if (!section.valid || (parameters.frustumCull && !frustumVisible(section))) continue;
             visible.push_back(&section);
         }
 
@@ -608,19 +624,21 @@ namespace at::terrain {
         std::unique_ptr<MeshResult> result;
         if (current) {
             result = mesh(*current, *snapshot, camera[0], camera[1], camera[2]);
+            u32 units = current->vertexUnits;
+            result->units = units;
             i32 slotSize = buildSize.load(std::memory_order_relaxed);
             if (slotSize > 0 && snapshot->sectionY >= 0 && snapshot->sectionY < 16) {
                 u32 slot = static_cast<u32>((floorMod(snapshot->sectionZ, slotSize) * slotSize +
                                              floorMod(snapshot->sectionX, slotSize)) * 16 + snapshot->sectionY);
                 for (LayerMesh &layer: result->layers) {
-                    for (Vertex &vertex: layer.vertices) setSlot(vertex, slot);
+                    for (std::size_t unit = 0; unit < layer.vertices.size(); unit += units) setSlot(layer.vertices[unit], slot);
                 }
             }
             for (u32 index = 0; index < LAYERS; index++) {
                 LayerMesh &layer = result->layers[index];
-                layer.count = static_cast<u32>(layer.vertices.size());
+                layer.count = static_cast<u32>(layer.vertices.size() / units);
                 if (layer.count == 0) continue;
-                u64 bytes = u64(layer.count) * sizeof(Vertex);
+                u64 bytes = layer.vertices.size() * sizeof(Vertex);
                 StagingSpan span = staging->allocate(bytes);
                 if (!span.valid()) continue;
                 std::memcpy(span.address, layer.vertices.data(), bytes);
@@ -666,13 +684,14 @@ namespace at::terrain {
         if (!section) return;
         if (!result.urgent && section->building && section->buildingVersion == result.version) section->building = false;
         if (!result.urgent && result.version < section->builtVersion) return;
+        if (result.units != arenaUnits) return;
         bool hadLayer[LAYERS];
         for (u32 index = 0; index < LAYERS; index++) hadLayer[index] = section->layers[index].vertices > 0;
         releaseGeometry(*section);
         VkCommandBuffer transfer = renderer.transferCommands();
         for (u32 index = 0; index < LAYERS; index++) {
             LayerMesh &mesh = result.layers[index];
-            u32 count = mesh.count ? mesh.count : static_cast<u32>(mesh.vertices.size());
+            u32 count = mesh.count ? mesh.count : static_cast<u32>(mesh.vertices.size() / arenaUnits);
             if (count == 0) continue;
             SectionLayer &layer = section->layers[index];
             u32 buffer, first;
@@ -680,7 +699,7 @@ namespace at::terrain {
                 log::warn("Section %d %d %d does not fit in a terrain buffer", result.x, result.y, result.z);
                 continue;
             }
-            u64 bytes = static_cast<u64>(count) * sizeof(Vertex);
+            u64 bytes = static_cast<u64>(count) * arenaUnits * sizeof(Vertex);
             VkBuffer source;
             u64 offset;
             if (mesh.staged.valid()) {
@@ -694,7 +713,7 @@ namespace at::terrain {
                 std::memcpy(address, mesh.vertices.data(), bytes);
                 transfer = renderer.transferCommands();
             }
-            VkBufferCopy region{.srcOffset = offset, .dstOffset = static_cast<u64>(first) * sizeof(Vertex), .size = bytes};
+            VkBufferCopy region{.srcOffset = offset, .dstOffset = static_cast<u64>(first) * arenaUnits * sizeof(Vertex), .size = bytes};
             vkCmdCopyBuffer(transfer, source, arena->handle(buffer), 1, &region);
             uploadedBytes += bytes;
             layer.buffer = buffer;
@@ -889,17 +908,83 @@ namespace at::terrain {
         return queued;
     }
 
+    void Terrain::beginShadowView(double x, double y, double z, const op::ShadowCulling &culling) {
+        constexpr float SECTION_HALF_SIZE = 8.0f + 1.0f + 0.125f;
+        shadowX = x;
+        shadowY = y;
+        shadowZ = z;
+        for (auto &list: shadowLayers) list.clear();
+        auto outside = [](float limit, const float min[3], const float max[3]) {
+            for (int axis = 0; axis < 3; axis++) {
+                if (max[axis] < -limit || min[axis] > limit) return true;
+            }
+            return false;
+        };
+        auto visibleSection = [&](const Section &section) {
+            if (culling.cullEverything) return false;
+            float min[3], max[3];
+            double origin[3] = {x, y, z};
+            i32 coordinates[3] = {section.x, section.y, section.z};
+            for (int axis = 0; axis < 3; axis++) {
+                float center = static_cast<float>(static_cast<double>(coordinates[axis]) * 16.0 + 8.0 - origin[axis]);
+                min[axis] = center - SECTION_HALF_SIZE;
+                max[axis] = center + SECTION_HALF_SIZE;
+            }
+            if (culling.distance >= 0.0f && outside(culling.distance, min, max)) return false;
+            if (culling.safeDistance >= 0.0f && !outside(culling.safeDistance, min, max)) return true;
+            for (u32 i = 0; i < culling.planeCount; i++) {
+                const float *plane = culling.planes[i];
+                float testX = plane[0] < 0.0f ? min[0] : max[0];
+                float testY = plane[1] < 0.0f ? min[1] : max[1];
+                float testZ = plane[2] < 0.0f ? min[2] : max[2];
+                if (std::fma(plane[0], testX, std::fma(plane[1], testY, plane[2] * testZ)) < -plane[3]) return false;
+            }
+            return true;
+        };
+        for (Section &section: sections) {
+            if (!section.valid || !visibleSection(section)) continue;
+            for (u32 layer = 0; layer < LAYERS; layer++) {
+                if (section.layers[layer].vertices > 0) shadowLayers[layer].push_back(&section);
+            }
+        }
+        shadowView = true;
+    }
+
+    void Terrain::endShadowView() {
+        shadowView = false;
+    }
+
     u32 Terrain::draw(u32 layerIndex) {
-        const std::vector<Section *> &list = layerVisible[layerIndex];
+        const std::vector<Section *> &list = shadowView ? shadowLayers[layerIndex] : layerVisible[layerIndex];
+        const double viewX = shadowView ? shadowX : cameraX;
+        const double viewY = shadowView ? shadowY : cameraY;
+        const double viewZ = shadowView ? shadowZ : cameraZ;
+        const double originX = std::floor(viewX), originY = std::floor(viewY), originZ = std::floor(viewZ);
         if (list.empty()) return 0;
         bool translucent = layerIndex == TRANSLUCENT;
         u64 tableBytes = sections.size() * sizeof(SectionDraw);
         u64 maxCommands = list.size() * BUCKETS + 64;
         u64 commandBytes = maxCommands * sizeof(VkDrawIndexedIndirectCommand);
         if (!renderer.prepare(commandBytes + 64, tableBytes)) return 0;
-        renderer.bindState(renderer.layouts.terrain(), VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        renderer.terrainLayer = static_cast<i32>(layerIndex);
+        bool bound = renderer.bindState(arenaUnits == EXTENDED_UNITS ? renderer.layouts.extendedTerrain() : renderer.layouts.terrain(),
+                                        VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+        renderer.terrainLayer = -1;
+        if (!bound) return 0;
+        renderer.state.dirty |= RenderState::TRANSFORM;
         u32 record = renderer.record();
-        bool facing = !translucent && renderer.state.cullsBack();
+        renderer.state.dirty |= RenderState::TRANSFORM;
+        {
+            auto *drawRecord = reinterpret_cast<DrawRecord *>(renderer.recordStream().address(static_cast<u64>(record) * sizeof(DrawRecord)));
+            float fraction[3] = {
+                static_cast<float>(viewX - originX), static_cast<float>(viewY - originY), static_cast<float>(viewZ - originZ)
+            };
+            for (int row = 0; row < 4; row++) {
+                drawRecord->modelView[12 + row] -= drawRecord->modelView[row] * fraction[0] + drawRecord->modelView[4 + row] * fraction[1] +
+                    drawRecord->modelView[8 + row] * fraction[2];
+            }
+        }
+        bool facing = !translucent && !shadowView && renderer.state.cullsBack();
 
         FrameStream &data = renderer.dataStream();
         FrameStream &sectionStream = renderer.sectionStream();
@@ -925,9 +1010,9 @@ namespace at::terrain {
             const SectionLayer &layer = section.layers[layerIndex];
             if (layer.vertices == 0) return;
             SectionDraw &entry = table[slotIndex(section)];
-            entry.offset[0] = static_cast<float>(section.x * 16 - cameraX);
-            entry.offset[1] = static_cast<float>(section.y * 16 - cameraY);
-            entry.offset[2] = static_cast<float>(section.z * 16 - cameraZ);
+            entry.offset[0] = static_cast<float>(section.x * 16 - originX);
+            entry.offset[1] = static_cast<float>(section.y * 16 - originY);
+            entry.offset[2] = static_cast<float>(section.z * 16 - originZ);
             entry.record = record;
             drawn++;
             bool show[BUCKETS];
@@ -995,9 +1080,9 @@ namespace at::terrain {
                 const SectionLayer &layer = section.layers[layerIndex];
                 if (layer.vertices == 0 || layer.indexCount == 0 || count >= maxCommands) continue;
                 SectionDraw &entry = table[slotIndex(section)];
-                entry.offset[0] = static_cast<float>(section.x * 16 - cameraX);
-                entry.offset[1] = static_cast<float>(section.y * 16 - cameraY);
-                entry.offset[2] = static_cast<float>(section.z * 16 - cameraZ);
+                entry.offset[0] = static_cast<float>(section.x * 16 - originX);
+                entry.offset[1] = static_cast<float>(section.y * 16 - originY);
+                entry.offset[2] = static_cast<float>(section.z * 16 - originZ);
                 entry.record = record;
                 if (layer.buffer != vertexBuffer || layer.indexBuffer != indexBuffer) {
                     flush();
@@ -1097,6 +1182,6 @@ namespace at::terrain {
             if (any) rendered++;
         }
         return log::format("C: %u/%u,%u D: %d, B: %u, Q: %u, M: %lluMB", rendered, total, compiled, viewDistance, building, dirty,
-                           arena->usedVertices() * sizeof(Vertex) >> 20);
+                           arena->usedVertices() * arenaUnits * sizeof(Vertex) >> 20);
     }
 } // namespace at::terrain

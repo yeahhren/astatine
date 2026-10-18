@@ -318,6 +318,18 @@ public class PackDirectives {
 		return explicitFlips.build();
 	}
 
+	public TextureScaleOverride getTextureScaleOverride(int index) {
+		if (index < PackRenderTargetDirectives.LEGACY_RENDER_TARGETS.size()) {
+			String legacyName = PackRenderTargetDirectives.LEGACY_RENDER_TARGETS.get(index);
+
+			if (scaleOverrides.containsKey(legacyName)) {
+				return scaleOverrides.get(legacyName);
+			}
+		}
+
+		return scaleOverrides.get("colortex" + index);
+	}
+
 	public Vector2i getTextureScaleOverride(int index, int dimensionX, int dimensionY) {
 		final String name = "colortex" + index;
 

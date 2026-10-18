@@ -94,7 +94,8 @@ public class VulkanPackResources implements PackResources {
 		long view = binding.image() == null ? ((VulkanGpuTextureView) binding.texture()).vkImageView() : binding.image().getView();
 		long sampler = binding.nativeSampler() == null ? this.heap.sampler(
 			binding.sampler()) : ((VulkanGpuSampler) binding.nativeSampler()).vkSampler();
-		return new VulkanSamplerHeap.ImageSampler(view, sampler, VK10.VK_IMAGE_LAYOUT_GENERAL);
+		int layout = binding.image() == null ? ((VulkanGpuTextureView) binding.texture()).imageLayout() : VK10.VK_IMAGE_LAYOUT_GENERAL;
+		return new VulkanSamplerHeap.ImageSampler(view, sampler, layout);
 	}
 
 	@Override

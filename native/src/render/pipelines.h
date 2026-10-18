@@ -60,6 +60,8 @@ namespace at {
 
         void stop();
 
+        [[nodiscard]] VkPipelineCache cacheHandle() const { return cache; }
+
         VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE;
         VkDescriptorSetLayout textureSetLayout = VK_NULL_HANDLE;
         VkPipelineLayout layout = VK_NULL_HANDLE;

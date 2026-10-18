@@ -4,13 +4,12 @@ import net.irisshaders.iris.gl.uniform.UniformHolder;
 import net.irisshaders.iris.gl.uniform.UniformUpdateFrequency;
 import net.irisshaders.iris.uniforms.transforms.SmoothedFloat;
 import net.minecraft.client.Minecraft;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Holder;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.LightLayer;
-import net.minecraft.world.level.biome.Biome;
-import net.minecraft.world.phys.Vec3;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.living.player.PlayerEntity;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.LightType;
+import net.minecraft.world.World;
+import net.minecraft.world.biome.Biome;
 import org.joml.Math;
 
 // These expressions are copied directly from BSL and Complementary.
@@ -19,12 +18,12 @@ import org.joml.Math;
 // mostly working under Iris.
 public class HardcodedCustomUniforms {
 	private static final Minecraft client = Minecraft.getInstance();
-	private static Holder<Biome> storedBiome;
+	private static Biome storedBiome;
 
 	public static void addHardcodedCustomUniforms(UniformHolder holder, FrameUpdateNotifier updateNotifier) {
 		updateNotifier.addListener(() -> {
-			if (Minecraft.getInstance().level != null) {
-				storedBiome = Minecraft.getInstance().level.getBiome(Minecraft.getInstance().getCameraEntity().blockPosition());
+			if (Minecraft.getInstance().world != null && Minecraft.getInstance().getCamera() != null) {
+				storedBiome = Minecraft.getInstance().world.getBiome(new BlockPos(Minecraft.getInstance().getCamera()));
 			} else {
 				storedBiome = null;
 			}
@@ -67,7 +66,7 @@ public class HardcodedCustomUniforms {
 			if (storedBiome == null) {
 				return 0;
 			} else {
-				return storedBiome.value().getBaseTemperature();
+				return storedBiome.temperature;
 			}
 		});
 
@@ -101,16 +100,16 @@ public class HardcodedCustomUniforms {
 	}
 
 	private static float getSneakFactor() {
-		return Minecraft.getInstance().player.isCrouching() ? 1.0f : 0f;
+		return Minecraft.getInstance().player.isSneaking() ? 1.0f : 0f;
 	}
 
 	private static float getHurtFactor() {
-		Player player = Minecraft.getInstance().player;
-		return player.hurtTime > 0 || player.deathTime > 0 ? 0.4f : 0f;
+		PlayerEntity player = Minecraft.getInstance().player;
+		return player.damagedTimer > 0 || player.deathTicks > 0 ? 0.4f : 0f;
 	}
 
 	private static float getEyeInCave() {
-		if (client.getCameraEntity().getEyeY() < 5.0) {
+		if (client.getCamera().y + client.getCamera().getEyeHeight() < 5.0) {
 			return 1.0f - getEyeSkyBrightness() / 240F;
 		}
 		return 0.0f;
@@ -121,15 +120,15 @@ public class HardcodedCustomUniforms {
 	}
 
 	private static float getEyeSkyBrightness() {
-		if (client.getCameraEntity() == null || client.level == null) {
+		Entity camera = client.getCamera();
+
+		if (camera == null || client.world == null) {
 			return 0;
 		}
 
-		Vec3 feet = client.getCameraEntity().position();
-		Vec3 eyes = new Vec3(feet.x, client.getCameraEntity().getEyeY(), feet.z);
-		BlockPos eyeBlockPos = BlockPos.containing(eyes);
+		BlockPos eyeBlockPos = new BlockPos(camera.x, camera.y + camera.getEyeHeight(), camera.z);
 
-		int skyLight = client.level.getBrightness(LightLayer.SKY, eyeBlockPos);
+		int skyLight = client.world.getBrightness(LightType.SKY, eyeBlockPos);
 
 		return skyLight * 16;
 	}
@@ -158,9 +157,9 @@ public class HardcodedCustomUniforms {
 	}
 
 	private static int getWorldDayTime() {
-		Level level = Minecraft.getInstance().level;
-		long timeOfDay = level.getDefaultClockTime();
-		long dayTime = level.dimensionType().hasFixedTime() ? 0 : (timeOfDay % 24000L);
+		World level = Minecraft.getInstance().world;
+		long timeOfDay = level.getTimeOfDay();
+		long dayTime = timeOfDay % 24000L;
 
 		return (int) dayTime;
 	}
@@ -186,13 +185,7 @@ public class HardcodedCustomUniforms {
 		if (storedBiome == null) {
 			return 0;
 		}
-		Biome.Precipitation precipitation = storedBiome.value()
-			.getPrecipitationAt(Minecraft.getInstance().getCameraEntity().blockPosition(), Minecraft.getInstance().level.getSeaLevel());
-		return switch (precipitation) {
-			case RAIN -> 1;
-			case SNOW -> 2;
-			default -> 0;
-		};
+		return storedBiome.isSnowy() ? 2 : storedBiome.isRainy() ? 1 : 0;
 	}
 
 	private static float getBlindFactor() {

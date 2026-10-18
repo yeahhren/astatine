@@ -10,6 +10,7 @@ import net.irisshaders.iris.pipeline.transform.PatchShaderType;
 import net.irisshaders.iris.pipeline.transform.ShaderResourceLayout;
 import net.irisshaders.iris.pipeline.transform.Std140Type;
 import net.irisshaders.iris.uniforms.custom.CustomUniforms;
+import net.minecraft.client.Minecraft;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -101,7 +102,8 @@ public final class FrameUniforms implements AutoCloseable {
 				this.slots.add(this.current);
 			}
 
-			this.values.update(0, this.uploads);
+			var level = Minecraft.getInstance().world;
+			this.values.update(level == null ? 0 : level.getTime(), this.uploads);
 			RenderSystem.getDevice().createCommandEncoder().writeToBuffer(this.current.buffer().slice(), this.values.data());
 			this.uploads++;
 		}

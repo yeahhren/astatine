@@ -2,10 +2,8 @@ package net.irisshaders.iris.shaderpack.materialmap;
 
 import it.unimi.dsi.fastutil.objects.Object2IntFunction;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
-import net.caffeinemc.mods.sodium.client.render.chunk.vertex.format.ChunkMeshFormats;
-import net.caffeinemc.mods.sodium.client.render.chunk.vertex.format.ChunkVertexType;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.block.Block;
+import net.minecraft.block.state.BlockState;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Map;
@@ -24,7 +22,7 @@ public class WorldRenderingSettings {
 	private boolean useSeparateAo;
 	private boolean separateEntityDraws;
 	private boolean voxelizeLightBlocks;
-	private ChunkVertexType chunkVertexFormat;
+	private boolean extendedVertexFormat;
 	private boolean breaksAnisotropy = false;
 
 	public WorldRenderingSettings() {
@@ -34,7 +32,7 @@ public class WorldRenderingSettings {
 		ambientOcclusionLevel = 1.0F;
 		disableDirectionalShading = false;
 		useSeparateAo = false;
-		chunkVertexFormat = ChunkMeshFormats.COMPACT;
+		extendedVertexFormat = false;
 		separateEntityDraws = false;
 		voxelizeLightBlocks = false;
 		hasVillagerConversionId = false;
@@ -135,17 +133,17 @@ public class WorldRenderingSettings {
 		this.useSeparateAo = useSeparateAo;
 	}
 
-	public ChunkVertexType getVertexFormat() {
-		return chunkVertexFormat;
+	public boolean usesExtendedVertexFormat() {
+		return extendedVertexFormat;
 	}
 
-	public void setVertexFormat(ChunkVertexType chunkVertexFormat) {
-		if (chunkVertexFormat == this.chunkVertexFormat) {
+	public void setExtendedVertexFormat(boolean extendedVertexFormat) {
+		if (extendedVertexFormat == this.extendedVertexFormat) {
 			return;
 		}
 
 		this.reloadRequired = true;
-		this.chunkVertexFormat = chunkVertexFormat;
+		this.extendedVertexFormat = extendedVertexFormat;
 	}
 
 	public boolean shouldVoxelizeLightBlocks() {

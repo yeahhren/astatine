@@ -48,8 +48,6 @@ import net.irisshaders.iris.uniforms.SystemTimeUniforms;
 import net.irisshaders.iris.uniforms.custom.CustomUniforms;
 import net.irisshaders.iris.vertices.ImmediateState;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.BindGroupLayouts;
-import net.minecraft.resources.Identifier;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -59,13 +57,6 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 public class CompositeRenderer {
-	public static final RenderPipeline COMPOSITE_PIPELINE = RenderPipeline.builder()
-		.withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false)).withColorTargetState(ColorTargetState.DEFAULT)
-		.withLocation(Identifier.fromNamespaceAndPath("iris", "composite"))
-		.withVertexShader(Identifier.fromNamespaceAndPath("iris", "core/screenquad")).withFragmentShader("core/blit_screen")
-		.withBindGroupLayout(BindGroupLayouts.IN_SAMPLER).withVertexBinding(0, DefaultVertexFormat.POSITION_TEX)
-		.withPrimitiveTopology(PrimitiveTopology.QUADS).build();
-
 	private final RenderTargets renderTargets;
 
 	private final ImmutableList<Pass> passes;
@@ -282,8 +273,8 @@ public class CompositeRenderer {
 					setupMipmapping(this.renderTargets.get(index), pass.stageReadsFromAlt.contains(index));
 				}
 
-				var level = Minecraft.getInstance().level;
-				pass.program.draw(pass.framebuffer.getColorViews(), pass.viewportScale, level == null ? 0 : level.getGameTime(),
+				var level = Minecraft.getInstance().world;
+				pass.program.draw(pass.framebuffer.getColorViews(), pass.viewportScale, level == null ? 0 : level.getTime(),
 					SystemTimeUniforms.COUNTER.getAsInt());
 			}
 		} finally {

@@ -40,6 +40,7 @@ import net.irisshaders.iris.uniforms.FrameUpdateNotifier;
 import net.irisshaders.iris.uniforms.SystemTimeUniforms;
 import net.irisshaders.iris.uniforms.custom.CustomUniforms;
 import net.minecraft.client.Minecraft;
+import yt.ren.astatine.vulkan.MainTarget;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
@@ -153,13 +154,13 @@ public class FinalPassRenderer {
 				}
 			}
 		}
-		var main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+		var main = MainTarget.get();
 		var program = this.finalPass == null ? this.fallbackProgram : this.finalPass.program;
 		program.prepare(List.of(main.getColorTextureView()));
 	}
 
 	public void renderFinalPass() {
-		var main = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+		var main = MainTarget.get();
 		var program = this.finalPass == null ? this.fallbackProgram : this.finalPass.program;
 
 		if (this.finalPass != null) {
@@ -174,8 +175,8 @@ public class FinalPassRenderer {
 			}
 		}
 
-		var level = Minecraft.getInstance().level;
-		program.draw(List.of(main.getColorTextureView()), ViewportData.defaultValue(), level == null ? 0 : level.getGameTime(),
+		var level = Minecraft.getInstance().world;
+		program.draw(List.of(main.getColorTextureView()), ViewportData.defaultValue(), level == null ? 0 : level.getTime(),
 			SystemTimeUniforms.COUNTER.getAsInt());
 
 		for (int i = 0; i < renderTargets.getRenderTargetCount(); i++) {

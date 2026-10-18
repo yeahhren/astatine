@@ -6,7 +6,6 @@
 #include <vector>
 
 namespace at::shaderpack {
-    // Same order as Iris' PatchShaderType.
     enum class ShaderStage : u32 {
         VERTEX,
         GEOMETRY,
@@ -31,7 +30,6 @@ namespace at::shaderpack {
 
     class ShaderCompiler {
     public:
-        // vulkanVersion is a VK_API_VERSION_* value, it picks the SPIR-V version.
         explicit ShaderCompiler(u32 vulkanVersion);
 
         ~ShaderCompiler();
@@ -42,7 +40,6 @@ namespace at::shaderpack {
 
         [[nodiscard]] CompiledShader compile(ShaderStage stage, const std::string &name, const std::string &source) const;
 
-        // Compiles every source on background threads and returns results in the same order.
         [[nodiscard]] std::vector<CompiledShader> compileAll(const std::vector<ShaderSource> &sources) const;
 
     private:

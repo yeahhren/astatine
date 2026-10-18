@@ -1,37 +1,27 @@
 package net.irisshaders.iris.gl.shader;
 
 import com.google.common.collect.ImmutableList;
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.renderpearl.backend.opengl.GlStateManager;
 import net.irisshaders.iris.Iris;
-import net.irisshaders.iris.compat.dh.DHCompat;
 import net.irisshaders.iris.gl.IrisLimits;
-import net.irisshaders.iris.gl.IrisRenderSystem;
 import net.irisshaders.iris.helpers.StringPair;
-import net.irisshaders.iris.pathways.HandRenderer;
 import net.irisshaders.iris.pbr.format.TextureFormat;
 import net.irisshaders.iris.pbr.format.TextureFormatLoader;
-import net.irisshaders.iris.pipeline.GraphicsBackend;
 import net.irisshaders.iris.pipeline.WorldRenderingPhase;
 import net.irisshaders.iris.platform.IrisPlatformHelpers;
 import net.irisshaders.iris.vulkan.VulkanShaderExtensions;
 import net.minecraft.client.Minecraft;
-import net.minecraft.util.Util;
+import org.apache.commons.lang3.SystemUtils;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.lwjgl.opengl.GL20C;
-import org.lwjgl.opengl.GL30C;
+import yt.ren.astatine.Native;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public class StandardMacros {
 	private static final Pattern SEMVER_PATTERN = Pattern.compile("(?<major>\\d+)\\.(?<minor>\\d+)\\.*(?<bugfix>\\d*)(.*)");
@@ -48,21 +38,13 @@ public class StandardMacros {
 		ArrayList<StringPair> standardDefines = new ArrayList<>();
 
 		define(standardDefines, "MC_VERSION", getMcVersion());
-		define(standardDefines, "MC_MIPMAP_LEVEL", String.valueOf(Minecraft.getInstance().options.mipmapLevels().get()));
+		define(standardDefines, "MC_MIPMAP_LEVEL", String.valueOf(Minecraft.getInstance().options.mipmapLevels));
 		define(standardDefines, "IRIS_VERSION", getFormattedIrisVersion());
-		if (GraphicsBackend.isOpenGL()) {
-			define(standardDefines, "MC_GL_VERSION", getGlVersion(GL20C.GL_VERSION));
-			define(standardDefines, "MC_GLSL_VERSION", getGlVersion(GL20C.GL_SHADING_LANGUAGE_VERSION));
-			for (String extension : getGlExtensions()) {
-				define(standardDefines, extension);
-			}
-		} else {
-			define(standardDefines, "MC_GL_VERSION", "0");
-			define(standardDefines, "MC_GLSL_VERSION", "450");
-			define(standardDefines, "IRIS_VULKAN");
-			for (String extension : VulkanShaderExtensions.EXTENSIONS) {
-				define(standardDefines, "MC_" + extension);
-			}
+		define(standardDefines, "MC_GL_VERSION", "0");
+		define(standardDefines, "MC_GLSL_VERSION", "450");
+		define(standardDefines, "IRIS_VULKAN");
+		for (String extension : VulkanShaderExtensions.EXTENSIONS) {
+			define(standardDefines, "MC_" + extension);
 		}
 		define(standardDefines, getOsString());
 		define(standardDefines, getVendor());
@@ -74,11 +56,6 @@ public class StandardMacros {
 		define(standardDefines, "IRIS_INLINE_GLINT");
 		define(standardDefines, "IRIS_TAG_SUPPORT", "2");
 
-
-		if (IrisPlatformHelpers.getInstance().isModLoaded("distanthorizons") && DHCompat.hasRenderingEnabled()) {
-			define(standardDefines, "DISTANT_HORIZONS");
-			define(standardDefines, "DISTANT_HORIZONS_TEXTURES");
-		}
 
 		if (IrisPlatformHelpers.getInstance().isModLoaded("continuity")) {
 			define(standardDefines, "IRIS_HAS_CONNECTED_TEXTURES");
@@ -113,7 +90,7 @@ public class StandardMacros {
 		define(standardDefines, "MC_SPECULAR_MAP");
 		define(standardDefines, "MC_RENDER_QUALITY", "1.0");
 		define(standardDefines, "MC_SHADOW_QUALITY", "1.0");
-		define(standardDefines, "MC_HAND_DEPTH", Float.toString(HandRenderer.DEPTH));
+		define(standardDefines, "MC_HAND_DEPTH", Float.toString(0.125F));
 
 		TextureFormat textureFormat = TextureFormatLoader.getFormat();
 		if (textureFormat != null) {
@@ -140,10 +117,7 @@ public class StandardMacros {
 	 */
 	public static String getMcVersion() {
 		String version = Iris.getReleaseTarget();
-		if (version == null) {
-			throw new IllegalStateException("Could not get the current Minecraft version!");
-		}
-		String formattedVersion = formatVersionString(version);
+        String formattedVersion = formatVersionString(version);
 		if (formattedVersion == null) {
 			throw new IllegalStateException("Could not parse game version \"" + version + "\"");
 		} else {
@@ -162,6 +136,16 @@ public class StandardMacros {
 		if (rawVersion == null) {
 			throw new IllegalArgumentException("Could not get current Iris version!");
 		}
+		String irisSemver = getIrisSemver(rawVersion);
+		String formattedSemver = formatVersionString(irisSemver);
+		if (formattedSemver == null) {
+			throw new IllegalArgumentException("Could not get a valid semantic version string for Iris version \"" + irisSemver + "\"");
+		} else {
+			return formattedSemver;
+		}
+	}
+
+	private static @NotNull String getIrisSemver(String rawVersion) {
 		Matcher matcher = SEMVER_PATTERN.matcher(rawVersion);
 		if (!matcher.matches()) {
 			throw new IllegalArgumentException("Could not parse semantic Iris version from \"" + rawVersion + "\"");
@@ -175,13 +159,7 @@ public class StandardMacros {
 		if (major == null || minor == null) {
 			throw new IllegalArgumentException("Could not parse semantic Iris version from \"" + rawVersion + "\"");
 		}
-		String irisSemver = "%s.%s.%s".formatted(major, minor, bugFix);
-		String formattedSemver = formatVersionString(irisSemver);
-		if (formattedSemver == null) {
-			throw new IllegalArgumentException("Could not get a valid semantic version string for Iris version \"" + irisSemver + "\"");
-		} else {
-			return formattedSemver;
-		}
+        return "%s.%s.%s".formatted(major, minor, bugFix);
 	}
 
 	/**
@@ -203,39 +181,6 @@ public class StandardMacros {
 			bugFix = 0 + bugFix;
 		}
 		return major + minor + bugFix;
-	}
-
-	/**
-	 * Returns the current GL Version using regex
-	 *
-	 * @param name the name of the gl attribute to parse
-	 * @return current gl version stripped of semantic versioning
-	 * @see <a href="https://github.com/sp614x/optifine/blob/9c6a5b5326558ccc57c6490b66b3be3b2dc8cbef/OptiFineDoc/doc/shaders.txt#L701-L703">Optifine Doc for GL Version</a>
-	 * @see <a href="https://github.com/sp614x/optifine/blob/9c6a5b5326558ccc57c6490b66b3be3b2dc8cbef/OptiFineDoc/doc/shaders.txt#L705-L707">Optifine Doc for GLSL Version</a>
-	 */
-	public static String getGlVersion(int name) {
-		String info = GlStateManager._getString(name);
-
-		Matcher matcher = SEMVER_PATTERN.matcher(Objects.requireNonNull(info));
-
-		if (!matcher.matches()) {
-			throw new IllegalStateException("Could not parse GL version from \"" + info + "\"");
-		}
-
-		String major = group(matcher, "major");
-		String minor = group(matcher, "minor");
-		String bugfix = group(matcher, "bugfix");
-
-		if (bugfix == null) {
-			// if bugfix is not there, it is 0
-			bugfix = "0";
-		}
-
-		if (major == null || minor == null) {
-			throw new IllegalStateException("Could not parse GL version from \"" + info + "\"");
-		}
-
-		return major + minor + bugfix;
 	}
 
 	/**
@@ -261,13 +206,14 @@ public class StandardMacros {
 	 * @see <a href="https://github.com/sp614x/optifine/blob/9c6a5b5326558ccc57c6490b66b3be3b2dc8cbef/OptiFineDoc/doc/shaders.txt#L709-L714">Optifine Doc</a>
 	 */
 	public static String getOsString() {
-		return switch (Util.getPlatform()) {
-			case OSX -> "MC_OS_MAC_VK";
-			case LINUX -> "MC_OS_LINUX";
-			case WINDOWS ->
-				"MC_OS_WINDOWS"; // Note: Optifine doesn't have a macro for Solaris. https://github.com/sp614x/optifine/blob/9c6a5b5326558ccc57c6490b66b3be3b2dc8cbef/OptiFineDoc/doc/shaders.txt#L709-L714
-			default -> "MC_OS_UNKNOWN";
-		};
+		if (SystemUtils.IS_OS_MAC) {
+			return "MC_OS_MAC_VK";
+		} else if (SystemUtils.IS_OS_LINUX) {
+			return "MC_OS_LINUX";
+		} else if (SystemUtils.IS_OS_WINDOWS) {
+			return "MC_OS_WINDOWS"; // Note: Optifine doesn't have a macro for Solaris. https://github.com/sp614x/optifine/blob/9c6a5b5326558ccc57c6490b66b3be3b2dc8cbef/OptiFineDoc/doc/shaders.txt#L709-L714
+		}
+		return "MC_OS_UNKNOWN";
 	}
 
 	/**
@@ -277,19 +223,12 @@ public class StandardMacros {
 	 * @see <a href="https://github.com/sp614x/optifine/blob/9c6a5b5326558ccc57c6490b66b3be3b2dc8cbef/OptiFineDoc/doc/shaders.txt#L716-L723">Optifine Doc</a>
 	 */
 	public static String getVendor() {
-		String vendor = Objects.requireNonNull(RenderSystem.getDevice().getDeviceInfo().vendorName()).toLowerCase(Locale.ROOT);
-		if (vendor.startsWith("ati")) {
-			return "MC_GL_VENDOR_ATI";
-		} else if (vendor.startsWith("intel")) {
-			return "MC_GL_VENDOR_INTEL";
-		} else if (vendor.startsWith("nvidia")) {
-			return "MC_GL_VENDOR_NVIDIA";
-		} else if (vendor.startsWith("amd")) {
-			return "MC_GL_VENDOR_AMD";
-		} else if (vendor.startsWith("x.org")) {
-			return "MC_GL_VENDOR_XORG";
-		}
-		return "MC_GL_VENDOR_OTHER";
+		return switch (Native.vendorId()) {
+			case 0x8086 -> "MC_GL_VENDOR_INTEL";
+			case 0x10DE -> "MC_GL_VENDOR_NVIDIA";
+			case 0x1002 -> "MC_GL_VENDOR_AMD";
+			default -> "MC_GL_VENDOR_OTHER";
+		};
 	}
 
 	/**
@@ -299,7 +238,7 @@ public class StandardMacros {
 	 * @see <a href="https://github.com/sp614x/optifine/blob/9c6a5b5326558ccc57c6490b66b3be3b2dc8cbef/OptiFineDoc/doc/shaders.txt#L725-L733">Optifine Doc</a>
 	 */
 	public static String getRenderer() {
-		String renderer = Objects.requireNonNull(RenderSystem.getDevice().getDeviceInfo().driverInfo()).toLowerCase(Locale.ROOT);
+		String renderer = Native.deviceName().toLowerCase(Locale.ROOT);
 		if (renderer.startsWith("amd")) {
 			return "MC_GL_RENDERER_RADEON";
 		} else if (renderer.startsWith("ati")) {
@@ -324,27 +263,6 @@ public class StandardMacros {
 			return "MC_GL_RENDERER_APPLE";
 		}
 		return "MC_GL_RENDERER_OTHER";
-	}
-
-
-	public static Set<String> getGlExtensions() {
-		// In OpenGL Core, we must use a new way of retrieving extensions.
-		int numExtensions = GlStateManager._getInteger(GL30C.GL_NUM_EXTENSIONS);
-
-		String[] extensions = new String[numExtensions];
-
-		for (int i = 0; i < numExtensions; i++) {
-			extensions[i] = IrisRenderSystem.getStringi(GL30C.GL_EXTENSIONS, i);
-		}
-
-		// TODO note that we do not add extensions based on if the shader uses them and if they are supported
-		// see https://github.com/sp614x/optifine/blob/master/OptiFineDoc/doc/shaders.txt#L738
-
-		// NB: Use Collectors.toSet(). In some cases, there are duplicate extensions in the extension list.
-		// RenderDoc is one example - it causes the GL_KHR_debug extension to appear twice:
-		//
-		// https://github.com/IrisShaders/Iris/issues/971
-		return Arrays.stream(extensions).map(s -> "MC_" + s).collect(Collectors.toSet());
 	}
 
 

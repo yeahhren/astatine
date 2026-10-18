@@ -6,24 +6,21 @@ import net.irisshaders.iris.compat.dh.DHCompat;
 import net.irisshaders.iris.features.FeatureFlags;
 import net.irisshaders.iris.gl.texture.TextureType;
 import net.irisshaders.iris.helpers.Tri;
-import net.irisshaders.iris.mixin.LevelRendererAccessor;
 import net.irisshaders.iris.shaderpack.properties.CloudSetting;
 import net.irisshaders.iris.shaderpack.properties.ParticleRenderingSettings;
 import net.irisshaders.iris.shaderpack.texture.TextureStage;
 import net.irisshaders.iris.uniforms.FrameUpdateNotifier;
-import net.minecraft.client.Camera;
-import net.minecraft.client.gui.components.debug.DebugScreenDisplayer;
-import net.minecraft.client.renderer.state.level.CameraRenderState;
 
+import java.util.List;
 import java.util.OptionalInt;
 import java.util.Set;
 
 public interface WorldRenderingPipeline {
 	void beginLevelRendering();
 
-	void renderShadows(LevelRendererAccessor worldRenderer, Camera playerCamera, CameraRenderState renderState);
+	void renderShadows(float tickDelta);
 
-	void addDebugText(DebugScreenDisplayer messages);
+	void addDebugText(List<String> messages);
 
 	OptionalInt getForcedShadowRenderDistanceChunksForDisplay();
 

@@ -1,24 +1,12 @@
 package net.irisshaders.iris.pathways;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.vertex.BufferBuilder;
-import com.mojang.blaze3d.vertex.ByteBufferBuilder;
-import com.mojang.blaze3d.vertex.DefaultVertexFormat;
-import com.mojang.blaze3d.vertex.MeshData;
-import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.mojang.renderpearl.api.buffers.GpuBuffer;
-import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
-import com.mojang.renderpearl.api.commands.RenderPass;
-import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.RenderPipelines;
-import org.joml.Matrix4f;
-import org.joml.Matrix4fc;
-import org.joml.Vector3f;
+import net.minecraft.client.render.platform.GlStateManager;
+import net.minecraft.client.render.vertex.BufferBuilder;
+import net.minecraft.client.render.vertex.DefaultVertexFormat;
+import net.minecraft.client.render.vertex.Tesselator;
 import org.joml.Vector4f;
-
-import java.util.Optional;
-import java.util.OptionalDouble;
+import org.lwjgl.opengl.GL11;
 
 /**
  * Renders the sky horizon. Vanilla Minecraft simply uses the "clear color" for its horizon, and then draws a plane
@@ -41,79 +29,49 @@ public class HorizonRenderer {
 	 * between the bottom and top skybox planes.
 	 */
 	private static final float BOTTOM = -16.0F;
-	private final ByteBufferBuilder storage;
 
-	private GpuBuffer buffer;
 	private int currentRenderDistance;
 
-	private int indexCount = -1;
-
 	public HorizonRenderer() {
-		currentRenderDistance = Minecraft.getInstance().options.getEffectiveRenderDistance();
-		this.storage = new ByteBufferBuilder(1024);
-
-		rebuildBuffer();
+		currentRenderDistance = Minecraft.getInstance().options.viewDistance;
 	}
 
-	private void rebuildBuffer() {
-		if (this.buffer != null) {
-			this.buffer.close();
-		}
-
-		BufferBuilder buffer = new BufferBuilder(storage, PrimitiveTopology.TRIANGLE_FAN, DefaultVertexFormat.POSITION);
-
-		buildHorizon(currentRenderDistance * 16, buffer);
-		MeshData meshData = buffer.buildOrThrow();
-
-		this.buffer = RenderSystem.getDevice()
-			.createBuffer(() -> "Horizon", GpuBuffer.USAGE_VERTEX | GpuBuffer.USAGE_COPY_DST, meshData.vertexBuffer());
-		this.indexCount = meshData.drawState().indexCount();
-		meshData.close();
-		storage.clear();
-	}
-
-	private void buildHorizon(int radius, VertexConsumer consumer) {
+	private void buildHorizon(int radius, BufferBuilder consumer) {
 		if (radius > 256) {
 			// Prevent the cone from getting too large, this causes issues on some shader packs that modify the vanilla
 			// sky if we don't do this.
 			radius = 256;
 		}
 
-		consumer.addVertex(0.0F, BOTTOM, 0.0F);
+		consumer.vertex(0.0F, BOTTOM, 0.0F).nextVertex();
 
 		for (int i = 0; i <= 8; i++) {
 			float angle = (float) (-i * Math.PI / 4.0);
 			float x = (float) (radius * Math.cos(angle));
 			float z = (float) (radius * Math.sin(angle));
-			consumer.addVertex(x, TOP, z);
+			consumer.vertex(x, TOP, z).nextVertex();
 		}
 	}
 
-	public void renderHorizon(Matrix4fc modelView, Matrix4fc projection, Vector4f fogColor) {
-		if (currentRenderDistance != Minecraft.getInstance().options.getEffectiveRenderDistance()) {
-			currentRenderDistance = Minecraft.getInstance().options.getEffectiveRenderDistance();
-			rebuildBuffer();
+	public void renderHorizon(Vector4f fogColor) {
+		if (currentRenderDistance != Minecraft.getInstance().options.viewDistance) {
+			currentRenderDistance = Minecraft.getInstance().options.viewDistance;
 		}
 
-		RenderSystem.AutoStorageIndexBuffer indices = RenderSystem.getSequentialBuffer(PrimitiveTopology.TRIANGLE_FAN);
-		GpuBuffer indexBuffer = indices.getBuffer(indexCount);
-		GpuBufferSlice gpuBufferSlice = RenderSystem.getDynamicUniforms()
-			.writeTransform((Matrix4f) modelView, fogColor, new Vector3f(), new Matrix4f());
-		try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder()
-			.createRenderPass(() -> "Sky", Minecraft.getInstance().gameRenderer.mainRenderTarget().getColorTextureView(), Optional.empty(),
-				Minecraft.getInstance().gameRenderer.mainRenderTarget().getDepthTextureView(), OptionalDouble.empty())) {
-			RenderSystem.bindDefaultUniforms(pass);
-			pass.setUniform("DynamicTransforms", gpuBufferSlice);
+		GlStateManager.disableTexture();
+		GlStateManager.depthMask(false);
+		GlStateManager.color4f(fogColor.x(), fogColor.y(), fogColor.z(), fogColor.w());
 
-			pass.setVertexBuffer(0, buffer.slice());
-			pass.setIndexBuffer(indexBuffer, indices.type());
-			pass.setPipeline(RenderSystem.getCompiledPipeline(RenderPipelines.SKY));
-			pass.drawIndexed(indexCount, 1, 0, 0, 0);
-		}
+		Tesselator tesselator = Tesselator.getInstance();
+		BufferBuilder buffer = tesselator.getBuffer();
+		buffer.begin(GL11.GL_TRIANGLE_FAN, DefaultVertexFormat.POSITION);
+		buildHorizon(currentRenderDistance * 16, buffer);
+		tesselator.end();
+
+		GlStateManager.depthMask(true);
+		GlStateManager.enableTexture();
 	}
 
 	public void destroy() {
-		buffer.close();
-		this.storage.close();
 	}
 }

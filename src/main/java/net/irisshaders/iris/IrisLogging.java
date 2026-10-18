@@ -1,10 +1,12 @@
 package net.irisshaders.iris;
 
-import com.mojang.logging.LogUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.Marker;
+import org.slf4j.MarkerFactory;
 
 public class IrisLogging {
+	private static final Marker FATAL_MARKER = MarkerFactory.getMarker("FATAL");
 	public static final boolean ENABLE_SPAM = false; // IrisPlatformHelpers.getInstance().isDevelopmentEnvironment();
 
 	private final Logger logger;
@@ -14,11 +16,11 @@ public class IrisLogging {
 	}
 
 	public void fatal(String fatal) {
-		this.logger.error(LogUtils.FATAL_MARKER, fatal);
+		this.logger.error(FATAL_MARKER, fatal);
 	}
 
 	public void fatal(String fatal, Throwable t) {
-		this.logger.error(LogUtils.FATAL_MARKER, fatal, t);
+		this.logger.error(FATAL_MARKER, fatal, t);
 	}
 
 	public void error(String error) {

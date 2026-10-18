@@ -158,6 +158,13 @@ namespace at {
             dirty |= TRANSFORM;
         }
 
+        void drawIds(i32 entity, i32 blockEntity, i32 item) {
+            drawIdValues[0] = entity;
+            drawIdValues[1] = blockEntity;
+            drawIdValues[2] = item;
+            dirty |= TRANSFORM;
+        }
+
         void texCoord(i32 unit, float s, float t) {
             set(texCoords + (unit & (UNITS - 1)) * 4, s, t, 0.0f, 1.0f);
             dirty |= TRANSFORM;
@@ -204,6 +211,14 @@ namespace at {
 
         [[nodiscard]] bool textureEnabled(int unit) const { return textureEnabledValue[unit]; }
         [[nodiscard]] bool cullsBack() const { return cull && cullFaceValue == gl::BACK; }
+        [[nodiscard]] bool blending() const { return blend; }
+
+        void blendFactors(i32 (&out)[4]) const {
+            out[0] = blendSourceColor;
+            out[1] = blendDestinationColor;
+            out[2] = blendSourceAlpha;
+            out[3] = blendDestinationAlpha;
+        }
         [[nodiscard]] Texture *boundTexture(int unit) const { return bound[unit]; }
         [[nodiscard]] Texture *activeBoundTexture() const { return bound[activeUnit]; }
 
@@ -253,6 +268,7 @@ namespace at {
         float clearDepthValue = 1.0f;
         float colorValue[4] = {1, 1, 1, 1};
         float normalValue[3] = {0, 0, 1};
+        i32 drawIdValues[3] = {-1, -1, -1};
         float texCoords[UNITS * 4] = {};
         bool overlayEnabled = false;
         float overlayColor[4] = {};

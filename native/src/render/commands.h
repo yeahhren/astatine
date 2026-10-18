@@ -53,6 +53,7 @@ namespace at::op {
         CLEAR = 47,
         BIND_FRAMEBUFFER = 48,
         RELEASE_MESH = 49,
+        DRAW_IDS = 50,
 
         DRAW = 100,
         DRAW_MESH = 101,
@@ -72,6 +73,10 @@ namespace at::op {
         TERRAIN_DRAW = 115,
         BEGIN_CAPTURE = 116,
         END_CAPTURE = 117,
+        TEXTURE_COMPANIONS = 129,
+        TERRAIN_SHADOW_VIEW = 130,
+        TERRAIN_SHADOW_VIEW_END = 131,
+        IRIS_DRAW_STATE = 132,
     };
 
     constexpr u32 HEADER = 16;
@@ -88,6 +93,12 @@ namespace at::op {
         u64 mesh;
         i32 mode;
         u32 pad;
+    };
+
+    struct TextureCompanions {
+        u64 texture;
+        u64 normals;
+        u64 specular;
     };
 
     struct TextureAllocate {
@@ -130,6 +141,21 @@ namespace at::op {
     struct Flag {
         u32 value;
         u32 pad;
+    };
+
+    struct ShadowCulling {
+        u32 cullEverything;
+        u32 planeCount;
+        float distance;
+        float safeDistance;
+        float planes[13][4];
+    };
+
+    struct TerrainShadowView {
+        float modelView[16];
+        float projection[16];
+        ShadowCulling culling;
+        double camera[3];
     };
 
     struct TerrainSetup {

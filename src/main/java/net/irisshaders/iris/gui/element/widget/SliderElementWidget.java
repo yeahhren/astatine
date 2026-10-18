@@ -1,15 +1,14 @@
 package net.irisshaders.iris.gui.element.widget;
 
+import net.irisshaders.iris.gui.GuiKeyEvent;
+import net.irisshaders.iris.gui.GuiMouseEvent;
 import net.irisshaders.iris.gui.GuiUtil;
+import net.irisshaders.iris.gui.IrisGraphics;
 import net.irisshaders.iris.shaderpack.option.menu.OptionMenuStringOptionElement;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.navigation.ScreenAxis;
-import net.minecraft.client.gui.navigation.ScreenDirection;
-import net.minecraft.client.input.KeyEvent;
-import net.minecraft.client.input.MouseButtonEvent;
-import net.minecraft.util.Mth;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.render.TextRenderer;
+import net.minecraft.util.math.MathHelper;
 
 public class SliderElementWidget extends StringElementWidget {
 	private static final int PREVIEW_SLIDER_WIDTH = 4;
@@ -22,7 +21,7 @@ public class SliderElementWidget extends StringElementWidget {
 	}
 
 	@Override
-	public void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float tickDelta, boolean hovered) {
+	public void render(IrisGraphics guiGraphics, int mouseX, int mouseY, float tickDelta, boolean hovered) {
 		this.updateRenderParams(35);
 
 
@@ -37,15 +36,15 @@ public class SliderElementWidget extends StringElementWidget {
 		}
 
 		if (usedKeyboard) {
-			if (Minecraft.getInstance().hasShiftDown()) {
-				renderTooltip(guiGraphics, SET_TO_DEFAULT, bounds.getBoundInDirection(ScreenDirection.RIGHT), bounds.position().y(),
+			if (Screen.isShiftDown()) {
+				renderTooltip(guiGraphics, SET_TO_DEFAULT, bounds.right(), bounds.y(),
 					hovered);
 			} else if (!this.screen.isDisplayingComment()) {
-				renderTooltip(guiGraphics, this.unmodifiedLabel, bounds.getBoundInDirection(ScreenDirection.RIGHT), bounds.position().y(),
+				renderTooltip(guiGraphics, this.unmodifiedLabel, bounds.right(), bounds.y(),
 					hovered);
 			}
 		} else {
-			if (Minecraft.getInstance().hasShiftDown()) {
+			if (Screen.isShiftDown()) {
 				renderTooltip(guiGraphics, SET_TO_DEFAULT, mouseX, mouseY, hovered);
 			} else if (!this.screen.isDisplayingComment()) {
 				renderTooltip(guiGraphics, this.unmodifiedLabel, mouseX, mouseY, hovered);
@@ -69,31 +68,31 @@ public class SliderElementWidget extends StringElementWidget {
 		}
 	}
 
-	private void renderSlider(GuiGraphicsExtractor guiGraphics) {
+	private void renderSlider(IrisGraphics guiGraphics) {
 		GuiUtil.bindIrisWidgetsTexture();
 
 		// Draw background button
-		GuiUtil.drawButton(guiGraphics, bounds.position().x(), bounds.position().y(), bounds.width(), bounds.height(), isFocused(), false);
+		GuiUtil.drawButton(guiGraphics, bounds.x(), bounds.y(), bounds.width(), bounds.height(), isFocused(), false);
 		// Draw slider area
-		GuiUtil.drawButton(guiGraphics, bounds.position().x() + 2, bounds.position().y() + 2, bounds.width() - 4, bounds.height() - 4,
+		GuiUtil.drawButton(guiGraphics, bounds.x() + 2, bounds.y() + 2, bounds.width() - 4, bounds.height() - 4,
 			false, true);
 
 		// Range of x values the slider can occupy
 		int sliderSpace = (bounds.width() - 8) - ACTIVE_SLIDER_WIDTH;
 		// Position of slider
-		int sliderPos = (bounds.position().x() + 4) + (int) (((float) valueIndex / (valueCount - 1)) * sliderSpace);
+		int sliderPos = (bounds.x() + 4) + (int) (((float) valueIndex / (valueCount - 1)) * sliderSpace);
 		// Draw slider
-		GuiUtil.drawButton(guiGraphics, sliderPos, bounds.position().y() + 4, ACTIVE_SLIDER_WIDTH, bounds.height() - 8, this.mouseDown,
+		GuiUtil.drawButton(guiGraphics, sliderPos, bounds.y() + 4, ACTIVE_SLIDER_WIDTH, bounds.height() - 8, this.mouseDown,
 			false);
 
 		// Draw value label
-		Font font = Minecraft.getInstance().font;
-		guiGraphics.text(font, this.valueLabel, bounds.getCenterInAxis(ScreenAxis.HORIZONTAL) - (int) (font.width(this.valueLabel) * 0.5),
-			bounds.position().y() + 7, 0xFFFFFFFF);
+		TextRenderer font = Minecraft.getInstance().textRenderer;
+		guiGraphics.text(font, this.valueLabel, bounds.centerX() - (int) (GuiUtil.width(this.valueLabel) * 0.5),
+			bounds.y() + 7, 0xFFFFFFFF);
 	}
 
 	private void whileDragging(int mouseX) {
-		float mousePositionAcrossWidget = Mth.clamp((float) (mouseX - (bounds.position().x() + 4)) / (bounds.width() - 8), 0, 1);
+		float mousePositionAcrossWidget = MathHelper.clamp((float) (mouseX - (bounds.x() + 4)) / (bounds.width() - 8), 0, 1);
 
 		int newValueIndex = Math.min(valueCount - 1, (int) (mousePositionAcrossWidget * valueCount));
 
@@ -114,9 +113,9 @@ public class SliderElementWidget extends StringElementWidget {
 	}
 
 	@Override
-	public boolean mouseClicked(MouseButtonEvent event, boolean bl2) {
-		if (event.button() == 1) {
-			if (Minecraft.getInstance().hasShiftDown()) {
+	public boolean mouseClicked(GuiMouseEvent event, boolean bl2) {
+		if (event.button() == GuiMouseEvent.LEFT) {
+			if (Screen.isShiftDown()) {
 				if (this.applyOriginalValue()) {
 					this.navigation.refresh();
 				}
@@ -136,9 +135,9 @@ public class SliderElementWidget extends StringElementWidget {
 	}
 
 	@Override
-	public boolean keyPressed(KeyEvent event) {
+	public boolean keyPressed(GuiKeyEvent event) {
 		if (event.isConfirmation()) {
-			if (Minecraft.getInstance().hasShiftDown()) {
+			if (Screen.isShiftDown()) {
 				if (this.applyOriginalValue()) {
 					this.navigation.refresh();
 				}
@@ -170,8 +169,8 @@ public class SliderElementWidget extends StringElementWidget {
 	}
 
 	@Override
-	public boolean mouseReleased(MouseButtonEvent event) {
-		if (event.button() == 1) {
+	public boolean mouseReleased(GuiMouseEvent event) {
+		if (event.button() == GuiMouseEvent.LEFT) {
 			this.onReleased();
 
 			return true;

@@ -27,6 +27,8 @@ public enum ShaderKey {
 		Patch.VANILLA),
 	TEXTURED_COLOR(ProgramId.Textured, AlphaTests.ONE_TENTH_ALPHA, DefaultVertexFormat.POSITION_TEX_COLOR, FogMode.OFF,
 		LightingModel.LIGHTMAP, Patch.VANILLA),
+	TEXTURED_LIT(ProgramId.TexturedLit, AlphaTests.ONE_TENTH_ALPHA, DefaultVertexFormat.PARTICLE, FogMode.PER_VERTEX,
+		LightingModel.LIGHTMAP, Patch.VANILLA),
 	SPS(ProgramId.SpiderEyes, AlphaTests.OFF, DefaultVertexFormat.POSITION_TEX_COLOR, FogMode.PER_FRAGMENT, LightingModel.FULLBRIGHT,
 		Patch.VANILLA),
 	SKY_BASIC(ProgramId.SkyBasic, AlphaTests.OFF, DefaultVertexFormat.POSITION, FogMode.OFF, LightingModel.FULLBRIGHT, Patch.VANILLA),

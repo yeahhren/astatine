@@ -1,7 +1,5 @@
 package net.irisshaders.iris.pathways.colorspace;
 
-import net.minecraft.network.chat.Component;
-
 public enum ColorSpace {
 	SRGB("sRGB"),
 	DCI_P3("DCI-P3"),
@@ -15,7 +13,7 @@ public enum ColorSpace {
 		this.name = name;
 	}
 
-	public Component getName() {
-		return Component.literal(name);
+	public String getName() {
+		return name;
 	}
 }

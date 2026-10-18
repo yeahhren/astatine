@@ -33,8 +33,8 @@ public class PipelineManager {
 			pipelinesPerDimension.put(currentDimension, pipeline);
 
 			if (WorldRenderingSettings.INSTANCE.isReloadRequired()) {
-				if (Minecraft.getInstance().levelExtractor != null) {
-					Minecraft.getInstance().levelExtractor.allChanged();
+				if (Minecraft.getInstance().worldRenderer != null) {
+					Minecraft.getInstance().worldRenderer.reload();
 				}
 
 				WorldRenderingSettings.INSTANCE.clearReloadRequired();

@@ -8,7 +8,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
-import yt.ren.astatine.Native;
+import yt.ren.astatine.vulkan.WorldDraws;
 import yt.ren.astatine.extension.MeshHolder;
 import yt.ren.astatine.render.geometry.ModelBaker;
 
@@ -46,7 +46,7 @@ public abstract class ModelPartMixin implements MeshHolder {
 	@Redirect(method = {"render", "renderForceTransform"}, at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/platform/GlStateManager;callList(I)V"))
 	private void astatine$draw(int list) {
 		if (this.astatine$mesh != 0L) {
-			Native.drawMesh(this.astatine$mesh, GL11.GL_QUADS);
+			WorldDraws.drawMesh(this.astatine$mesh, GL11.GL_QUADS);
 		}
 	}
 }

@@ -91,6 +91,10 @@ public final class WorldRenderPass extends ForwardingRenderPass {
 		this.commands.end();
 	}
 
+	public void prepareDraw() {
+		this.beforeDraw();
+	}
+
 	@Override
 	protected void beforeDraw() {
 		if (this.pipeline == null || this.pipeline.isClosed()) {
@@ -114,10 +118,10 @@ public final class WorldRenderPass extends ForwardingRenderPass {
 			this.resources.put(entry.getKey(), value);
 		}
 
-		var level = Minecraft.getInstance().level;
+		var level = Minecraft.getInstance().world;
 		this.pipeline.shader()
 			.apply(this.renderPass, this.pipeline, this.phase, this.depth == null ? null : this.depth.texture().getFormat(), this.resources,
-				this.constantsPushed ? this.pushConstants : null, level == null ? 0 : level.getGameTime(),
+				this.constantsPushed ? this.pushConstants : null, level == null ? 0 : level.getTime(),
 				SystemTimeUniforms.COUNTER.getAsInt());
 	}
 }

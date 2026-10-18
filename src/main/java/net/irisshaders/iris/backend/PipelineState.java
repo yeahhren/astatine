@@ -7,6 +7,7 @@ import com.mojang.renderpearl.api.pipeline.DepthStencilState;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
 import com.mojang.renderpearl.api.vertex.VertexFormat;
 import net.irisshaders.iris.gl.blending.BlendMode;
+import net.irisshaders.iris.pipeline.GraphicsBackend;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -34,7 +35,7 @@ public record PipelineState(FramebufferDescription framebuffer, List<BlendMode> 
 	public static DepthStencilState depthState(RenderPipeline pipeline, boolean hasDepth, boolean shadow) {
 		var depth = pipeline == null || !hasDepth ? null : pipeline.getDepthStencilState();
 
-		if (depth == null || !shadow) {
+		if (depth == null || !shadow || !GraphicsBackend.isReversedDepth()) {
 			return depth;
 		}
 

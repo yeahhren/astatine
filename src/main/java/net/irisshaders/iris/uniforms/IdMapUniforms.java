@@ -7,13 +7,10 @@ import net.irisshaders.iris.gl.uniform.UniformUpdateFrequency;
 import net.irisshaders.iris.shaderpack.IdMap;
 import net.irisshaders.iris.shaderpack.materialmap.NamespacedId;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.core.component.DataComponents;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.client.entity.living.player.LocalClientPlayerEntity;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.resource.Identifier;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Vector3f;
 
@@ -22,6 +19,15 @@ import static net.irisshaders.iris.gl.uniform.UniformUpdateFrequency.PER_FRAME;
 public final class IdMapUniforms {
 
 	private IdMapUniforms() {
+	}
+
+	private enum InteractionHand {
+		MAIN_HAND,
+		OFF_HAND
+	}
+
+	private static ItemStack getItemInHand(LocalClientPlayerEntity player, InteractionHand hand) {
+		return hand == InteractionHand.MAIN_HAND ? player.inventory.getSelectedItem() : null;
 	}
 
 	public static void addIdMapUniforms(FrameUpdateNotifier notifier, UniformHolder uniforms, IdMap idMap, boolean isOldHandLight) {
@@ -63,7 +69,7 @@ public final class IdMapUniforms {
 		}
 
 		public void update() {
-			LocalPlayer player = Minecraft.getInstance().player;
+			LocalClientPlayerEntity player = Minecraft.getInstance().player;
 
 			if (player == null) {
 				// Not valid when the player doesn't exist
@@ -71,7 +77,7 @@ public final class IdMapUniforms {
 				return;
 			}
 
-			ItemStack heldStack = player.getItemInHand(hand);
+			ItemStack heldStack = getItemInHand(player, hand);
 
 			if (heldStack == null) {
 				invalidate();
@@ -85,9 +91,10 @@ public final class IdMapUniforms {
 				return;
 			}
 
-			Identifier heldItemId = heldStack.get(DataComponents.ITEM_MODEL);
+			Identifier heldItemId = Item.REGISTRY.getKey(heldItem);
 			if (heldItemId == null) {
-				heldItemId = BuiltInRegistries.ITEM.getKey(heldItem);
+				invalidate();
+				return;
 			}
 			intID = itemIdMap.applyAsInt(new NamespacedId(heldItemId.getNamespace(), heldItemId.getPath()));
 
@@ -101,8 +108,8 @@ public final class IdMapUniforms {
 			lightColor = lightProvider.getLightColor(Minecraft.getInstance().player, heldStack);
 		}
 
-		private IrisItemLightProvider applyOldHandLighting(@NotNull LocalPlayer player, IrisItemLightProvider existing) {
-			ItemStack offHandStack = player.getItemInHand(InteractionHand.OFF_HAND);
+		private IrisItemLightProvider applyOldHandLighting(@NotNull LocalClientPlayerEntity player, IrisItemLightProvider existing) {
+			ItemStack offHandStack = getItemInHand(player, InteractionHand.OFF_HAND);
 
 			if (offHandStack == null) {
 				return existing;

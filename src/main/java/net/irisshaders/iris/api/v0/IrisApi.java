@@ -1,7 +1,5 @@
 package net.irisshaders.iris.api.v0;
 
-import com.mojang.renderpearl.api.pipeline.RenderPipeline;
-
 import java.nio.ByteBuffer;
 import java.util.function.IntFunction;
 
@@ -121,14 +119,14 @@ public interface IrisApi {
 	 *
 	 * @since API v0.3
 	 */
-	void assignPipeline(RenderPipeline pipeline, IrisProgram program);
+	void assignPipeline(Object pipeline, IrisProgram program);
 
 	/**
 	 * Assigns a render pipeline to an Iris shader key for the shadow pass.
 	 *
 	 * @since API v0.4
 	 */
-	void assignPipelineShadow(RenderPipeline pipeline, IrisShadowProgram program);
+	void assignPipelineShadow(Object pipeline, IrisShadowProgram program);
 
 	/**
 	 * Registers a callback invoked during the shadow pass, after opaque terrain.

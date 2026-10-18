@@ -22,31 +22,16 @@ public class VanillaTransformer {
 		CommonTransformer.transform(t, tree, root, parameters, false);
 		CommonTransformer.replaceMidBlock(t, tree, root, parameters);
 
-		tree.parseAndInjectNodes(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "const float mc_chunkFade = -1.0;", """
-				layout(std140) uniform iris_Fog {
-				    vec4 FogColor;
-				    float FogEnvironmentalStart;
-				    float FogEnvironmentalEnd;
-				    float FogRenderDistanceStart;
-				    float FogRenderDistanceEnd;
-				    float FogSkyEnd;
-				    float FogCloudsEnd;
-				} iris_fogP;
-				""", "struct iris_FogParameters {" + "vec4 color;" + "float density;" + "float start;" + "float end;" + "float scale;" + "};",
-			"iris_FogParameters irisInt_Fog = iris_FogParameters(iris_fogP.FogColor, 0.0, iris_fogP.FogEnvironmentalStart, iris_fogP.FogEnvironmentalEnd, 1.0 / (iris_fogP.FogEnvironmentalEnd - iris_fogP.FogEnvironmentalStart));");
+		tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "const float mc_chunkFade = -1.0;");
+		DrawDataTransformer.injectFog(t, tree);
+		DrawDataTransformer.inject(t, tree, root, parameters);
+
+		if (parameters.type.glShaderType == ShaderType.VERTEX) {
+			tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "layout(constant_id = 0) const int iris_InputMask = 15;");
+			tree.prependMainFunctionBody(t, "iris_DrawId = gl_InstanceIndex;");
+		}
 
 		tree.parseAndInjectNodes(t, ASTInjectionPoint.BEFORE_DECLARATIONS, """
-			layout(std140) uniform iris_DynamicTransforms {
-			    mat4 ModelViewMat;
-			    mat4 TextureMat;
-			    vec4 ColorModulator;
-			    vec3 ModelOffset;
-			} iris_transforms;
-			""", """
-			layout(std140) uniform iris_Projection {
-			    mat4 iris_ProjMat;
-			};
-			""", """
 			layout(std140) uniform iris_Globals {
 			ivec3 CameraBlockPos;
 			float GlintAlpha;
@@ -66,7 +51,8 @@ public class VanillaTransformer {
 			tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "in float iris_LineWidth;");
 
 			if (parameters.inputs.hasTex() && !parameters.isClouds()) {
-				root.replaceReferenceExpressions(t, "gl_MultiTexCoord0", "vec4(iris_UV0, 0.0, 1.0)");
+				root.replaceReferenceExpressions(t, "gl_MultiTexCoord0",
+					"((iris_InputMask & 2) != 0 ? vec4(iris_UV0, 0.0, 1.0) : " + DrawDataTransformer.DRAW + ".texCoord0)");
 				tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "in vec2 iris_UV0;");
 			} else {
 				root.replaceReferenceExpressions(t, "gl_MultiTexCoord0", "vec4(0.5, 0.5, 0.0, 1.0)");
@@ -77,7 +63,8 @@ public class VanillaTransformer {
 
 				tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "uniform ivec2 iris_LightUV;");
 			} else if (parameters.inputs.hasLight()) {
-				root.replaceReferenceExpressions(t, "gl_MultiTexCoord1", "vec4(iris_UV2, 0.0, 1.0)");
+				root.replaceReferenceExpressions(t, "gl_MultiTexCoord1",
+					"((iris_InputMask & 4) != 0 ? vec4(iris_UV2, 0.0, 1.0) : " + DrawDataTransformer.DRAW + ".texCoord1)");
 
 				tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "in ivec2 iris_UV2;");
 			} else {
@@ -94,13 +81,10 @@ public class VanillaTransformer {
 
 		if (parameters.inputs.hasColor() && parameters.type == PatchShaderType.VERTEX) {
 			// TODO: Handle the fragment / geometry shader here
-			if (parameters.alpha.reference() == Float.MAX_VALUE) {
-				root.replaceReferenceExpressions(t, "gl_Color",
-					"vec4((iris_Color * iris_transforms.ColorModulator).rgb, iris_transforms.ColorModulator.a)");
-			} else if (parameters.isClouds()) {
+			if (parameters.isClouds()) {
 				root.replaceReferenceExpressions(t, "gl_Color", "iris_cloudCol");
 			} else {
-				root.replaceReferenceExpressions(t, "gl_Color", "(iris_Color * iris_transforms.ColorModulator)");
+				root.replaceReferenceExpressions(t, "gl_Color", "((iris_InputMask & 1) != 0 ? iris_Color : " + DrawDataTransformer.DRAW + ".color)");
 			}
 
 			if (parameters.type.glShaderType == ShaderType.VERTEX) {
@@ -109,19 +93,18 @@ public class VanillaTransformer {
 		} else if (parameters.inputs.isGlint() && !parameters.inputs.hasOverlay()) {
 			// iris_ColorModulator should be applied regardless of the alpha test state.
 			root.replaceReferenceExpressions(t, "gl_Color",
-				"vec4(iris_transforms.ColorModulator.rgb, iris_transforms.ColorModulator.a * iris_globalInfo.GlintAlpha)");
-			//root.replaceReferenceExpressions(t, "gl_Color", "iris_transforms.ColorModulator");
+				"vec4(" + DrawDataTransformer.DRAW + ".color.rgb, " + DrawDataTransformer.DRAW + ".color.a * iris_globalInfo.GlintAlpha)");
 
 		} else {
-			// iris_ColorModulator should be applied regardless of the alpha test state.
-			root.replaceReferenceExpressions(t, "gl_Color", "iris_transforms.ColorModulator");
+			root.replaceReferenceExpressions(t, "gl_Color", DrawDataTransformer.DRAW + ".color");
 		}
 
 		if (parameters.type.glShaderType == ShaderType.VERTEX) {
 			if (!parameters.isClouds()) {
 				if (parameters.inputs.hasNormal()) {
 					if (!parameters.inputs.isNewLines()) {
-						root.rename("gl_Normal", "iris_Normal");
+						root.replaceReferenceExpressions(t, "gl_Normal",
+							"((iris_InputMask & 8) != 0 ? iris_Normal : " + DrawDataTransformer.DRAW + ".normal.xyz)");
 					} else {
 						root.replaceReferenceExpressions(t, "gl_Normal", "vec3(0.0, 0.0, 1.0)");
 					}
@@ -133,23 +116,16 @@ public class VanillaTransformer {
 			}
 		}
 
-		tree.parseAndInjectNodes(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "uniform mat4 iris_LightmapTextureMatrix;");
-
 		// TODO: More solid way to handle texture matrices
 		root.replaceExpressionMatches(t, CommonTransformer.glTextureMatrix0,
-			parameters.inputs.isGlint() && parameters.inputs.hasOverlay() ? "mat4(1.0)" : "iris_transforms.TextureMat");
-		root.replaceExpressionMatches(t, CommonTransformer.glTextureMatrix1, "iris_LightmapTextureMatrix");
+			parameters.inputs.isGlint() && parameters.inputs.hasOverlay() ? "mat4(1.0)" : DrawDataTransformer.ENVIRONMENT + ".textureMatrix0");
+		root.replaceExpressionMatches(t, CommonTransformer.glTextureMatrix1, DrawDataTransformer.ENVIRONMENT + ".textureMatrix1");
 
-		// TODO: Should probably add the normal matrix as a proper uniform that's
-		// computed on the CPU-side of things
-		root.replaceReferenceExpressions(t, "gl_NormalMatrix", "iris_NormalMat");
+		root.replaceReferenceExpressions(t, "gl_NormalMatrix", DrawDataTransformer.NORMAL_MATRIX);
 
-		root.replaceReferenceExpressions(t, "gl_ModelViewMatrixInverse", "iris_ModelViewMatInverse");
+		root.replaceReferenceExpressions(t, "gl_ModelViewMatrixInverse", "inverse(" + DrawDataTransformer.MODEL_VIEW + ")");
 
-		root.replaceReferenceExpressions(t, "gl_ProjectionMatrixInverse", "iris_ProjMatInverse");
-		tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "uniform mat3 iris_NormalMat;");
-		tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "uniform mat4 iris_ProjMatInverse;");
-		tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "uniform mat4 iris_ModelViewMatInverse;");
+		root.replaceReferenceExpressions(t, "gl_ProjectionMatrixInverse", "inverse(iris_undoRevZ(" + DrawDataTransformer.PROJECTION + "))");
 
 		if (parameters.type.glShaderType == ShaderType.VERTEX) {
 			tree.parseAndInjectNodes(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "in vec3 iris_Position;");
@@ -285,15 +261,15 @@ public class VanillaTransformer {
 				"const mat4 iris_VIEW_SCALE = mat4(" + "iris_VIEW_SHRINK, 0.0, 0.0, 0.0," + "0.0, iris_VIEW_SHRINK, 0.0, 0.0," + "0.0, 0.0, iris_VIEW_SHRINK, 0.0," + "0.0, 0.0, 0.0, 1.0);");
 			transform.append("iris_VIEW_SCALE * ");
 		}
-		transform.append("iris_transforms.ModelViewMat");
+		transform.append(DrawDataTransformer.MODEL_VIEW);
 		if (parameters.hasChunkOffset) {
 			tree.parseAndInjectNodes(t, ASTInjectionPoint.BEFORE_FUNCTIONS,
 				"mat4 _iris_internal_translate(vec3 offset) {" + "return mat4(1.0, 0.0, 0.0, 0.0," + "0.0, 1.0, 0.0, 0.0," + "0.0, 0.0, 1.0, 0.0," + "offset.x, offset.y, offset.z, 1.0); }");
-			transform.append(" * _iris_internal_translate(iris_transforms.ModelOffset)");
+			transform.append(" * _iris_internal_translate(vec3(0.0))");
 		}
 		transform.append(")");
 		root.replaceReferenceExpressions(t, "gl_ModelViewMatrix", transform.toString());
 		CommonTransformer.injectForwardZProjection(t, tree);
-		root.replaceReferenceExpressions(t, "gl_ProjectionMatrix", "iris_undoRevZ(iris_ProjMat)");
+		root.replaceReferenceExpressions(t, "gl_ProjectionMatrix", "iris_undoRevZ(" + DrawDataTransformer.PROJECTION + ")");
 	}
 }

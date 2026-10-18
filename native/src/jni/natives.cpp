@@ -6,9 +6,14 @@
 #include "render/renderer.h"
 #include "render/targets.h"
 #include "render/texture.h"
+#include "render/vertex_layout.h"
+#include "terrain/terrain.h"
 #include "vulkan/device.h"
+#include "vulkan/frame.h"
+#include "vulkan/instance.h"
 
 #include <algorithm>
+#include <initializer_list>
 
 using namespace at;
 
@@ -73,6 +78,101 @@ AT_EXPORT(jstring, deviceName)(JNIEnv *env
                                ,
                                jclass) {
     return env->NewStringUTF(Renderer::get().context().device->name.c_str());
+}
+
+AT_EXPORT(jlongArray, vulkanHandles)(JNIEnv *env, jclass) {
+    const Context &context = Renderer::get().context();
+    jlong values[7] = {
+        reinterpret_cast<jlong>(Renderer::vulkan().handle), reinterpret_cast<jlong>(context.device->physical),
+        reinterpret_cast<jlong>(context.device->handle), reinterpret_cast<jlong>(context.device->queue),
+        static_cast<jlong>(context.device->queueFamily), static_cast<jlong>(Renderer::vulkan().apiVersion),
+        reinterpret_cast<jlong>(Renderer::vulkan().getInstanceProcAddr)
+    };
+    jlongArray array = env->NewLongArray(7);
+    env->SetLongArrayRegion(array, 0, 7, values);
+    return array;
+}
+
+static jobjectArray strings(JNIEnv *env, const std::vector<std::string> &values) {
+    jobjectArray array = env->NewObjectArray(static_cast<jsize>(values.size()), env->FindClass("java/lang/String"), nullptr);
+    for (std::size_t i = 0; i < values.size(); i++) {
+        jstring value = env->NewStringUTF(values[i].c_str());
+        env->SetObjectArrayElement(array, static_cast<jsize>(i), value);
+        env->DeleteLocalRef(value);
+    }
+    return array;
+}
+
+AT_EXPORT(jobjectArray, vulkanInstanceExtensions)(JNIEnv *env, jclass) {
+    return strings(env, Renderer::vulkan().enabledExtensions);
+}
+
+AT_EXPORT(jobjectArray, vulkanDeviceFeatures)(JNIEnv *env, jclass) {
+    return strings(env, Renderer::get().context().device->enabledFeatures);
+}
+
+AT_EXPORT(jobjectArray, vulkanDeviceExtensions)(JNIEnv *env, jclass) {
+    return strings(env, Renderer::get().context().device->enabledExtensions);
+}
+
+AT_EXPORT(jlong, borrowCommands)(JNIEnv *env, jclass) {
+    return jvm::handled(env, [&]() -> jlong {
+        Renderer &renderer = Renderer::get();
+        renderer.waitIdle();
+        if (renderer.externalPass) {
+            renderer.ensureRecording();
+            renderer.flushBatch();
+        } else {
+            renderer.endCurrentPass();
+        }
+        renderer.forgetBindings();
+        return reinterpret_cast<jlong>(renderer.commands());
+    });
+}
+
+AT_EXPORT(void, externalPass)(JNIEnv *env, jclass, jboolean inside) {
+    jvm::handled(env, [&] {
+        Renderer &renderer = Renderer::get();
+        renderer.externalPass = inside;
+        renderer.state.dirty |= RenderState::ENVIRONMENT | RenderState::VIEWPORT;
+    });
+}
+
+AT_EXPORT(void, irisDrawState)(JNIEnv *env, jclass, jint stage, jint flags) {
+    jvm::handled(env, [&] {
+        Renderer::get().command(op::IRIS_DRAW_STATE, op::Flag{static_cast<u32>(stage), static_cast<u32>(flags)});
+    });
+}
+
+AT_EXPORT(void, renderThread)(JNIEnv *env, jclass, jboolean enabled) {
+    jvm::handled(env, [&] {
+        Renderer &renderer = Renderer::get();
+        if (enabled) {
+            renderer.startThread();
+        } else {
+            renderer.stopThread();
+        }
+    });
+}
+
+AT_EXPORT(jlong, presentedFrames)(JNIEnv *env, jclass) {
+    return jvm::handled(env, [&]() -> jlong { return static_cast<jlong>(Renderer::get().presentedFrames()); });
+}
+
+AT_EXPORT(jint, framesInFlight)(JNIEnv *, jclass) {
+    return static_cast<jint>(Renderer::FRAMES);
+}
+
+AT_EXPORT(jint, maxColorAttachments)(JNIEnv *, jclass) {
+    return static_cast<jint>(Renderer::get().context().device->maxColorAttachments);
+}
+
+AT_EXPORT(jboolean, tessellationShaders)(JNIEnv *, jclass) {
+    return Renderer::get().context().device->tessellationShader ? JNI_TRUE : JNI_FALSE;
+}
+
+AT_EXPORT(jboolean, shaderStores)(JNIEnv *, jclass) {
+    return Renderer::get().context().device->shaderStores ? JNI_TRUE : JNI_FALSE;
 }
 
 AT_EXPORT(jint, vendorId)(JNIEnv *
@@ -191,6 +291,15 @@ AT_EXPORT(void, textureUploadActive)(JNIEnv *env, jclass, jint level, jint x, ji
     });
 }
 
+AT_EXPORT(void, textureCompanions)(JNIEnv *env, jclass, jlong texture, jlong normals, jlong specular) {
+    jvm::handled(env, [&] {
+        if (!Renderer::ready()) return;
+        Renderer::get().command(op::TEXTURE_COMPANIONS, op::TextureCompanions{
+                                    static_cast<u64>(texture), static_cast<u64>(normals), static_cast<u64>(specular)
+                                });
+    });
+}
+
 AT_EXPORT(void, textureDetach)(JNIEnv *env, jclass, jlong texture) {
     jvm::handled(env, [&] {
         if (!Renderer::ready()) return;
@@ -269,6 +378,113 @@ AT_EXPORT(jboolean, framebufferBlit)(JNIEnv *env, jclass, jlong framebuffer, jin
                              static_cast<u64>(framebuffer), static_cast<u32>(width), static_cast<u32>(height)
                          });
         return static_cast<jboolean>(true);
+    });
+}
+
+static jlongArray longs(JNIEnv *env, std::initializer_list<jlong> values) {
+    jlongArray array = env->NewLongArray(static_cast<jsize>(values.size()));
+    env->SetLongArrayRegion(array, 0, static_cast<jsize>(values.size()), values.begin());
+    return array;
+}
+
+AT_EXPORT(jlongArray, framebufferImages)(JNIEnv *env, jclass, jlong framebuffer) {
+    return jvm::handled(env, [&]() -> jlongArray {
+        auto *target = pointer<Framebuffer>(framebuffer);
+        if (!target || !target->color) return nullptr;
+        GpuImage &color = *target->color;
+        return longs(env, {
+                         reinterpret_cast<jlong>(color.handle), reinterpret_cast<jlong>(color.view),
+                         static_cast<jlong>(color.format), static_cast<jlong>(color.width),
+                         static_cast<jlong>(color.height), static_cast<jlong>(color.levels)
+                     });
+    });
+}
+
+AT_EXPORT(jlongArray, drawBuffers)(JNIEnv *env, jclass) {
+    return jvm::handled(env, [&]() -> jlongArray {
+        Renderer &renderer = Renderer::get();
+        renderer.ensureRecording();
+        FrameStream &environments = renderer.environmentStream();
+        FrameStream &records = renderer.recordStream();
+        FrameStream &sections = renderer.sectionStream();
+        return longs(env, {
+                         reinterpret_cast<jlong>(environments.handle()), static_cast<jlong>(environments.buffer->size),
+                         reinterpret_cast<jlong>(records.handle()), static_cast<jlong>(records.buffer->size),
+                         reinterpret_cast<jlong>(sections.handle()), static_cast<jlong>(sections.buffer->size)
+                     });
+    });
+}
+
+AT_EXPORT(jintArray, layoutAttributes)(JNIEnv *env, jclass, jint layout) {
+    return jvm::handled(env, [&]() -> jintArray {
+        const VertexLayout &value = Renderer::get().layouts[static_cast<u32>(layout)];
+        std::vector<jint> data = {
+            value.terrain ? 1 : 0, value.split ? 1 : 0, static_cast<jint>(value.stride), static_cast<jint>(value.attributeStride),
+            value.tangents ? 1 : 0, static_cast<jint>(value.tangentOffset), static_cast<jint>(value.attributes.size())
+        };
+        for (const VertexAttribute &attribute: value.attributes) {
+            data.push_back(static_cast<jint>(attribute.location));
+            data.push_back(static_cast<jint>(attribute.binding));
+            data.push_back(static_cast<jint>(attribute.format));
+            data.push_back(static_cast<jint>(attribute.offset));
+        }
+        jintArray array = env->NewIntArray(static_cast<jsize>(data.size()));
+        env->SetIntArrayRegion(array, 0, static_cast<jsize>(data.size()), data.data());
+        return array;
+    });
+}
+
+AT_EXPORT(jint, meshLayout)(JNIEnv *env, jclass, jlong mesh) {
+    return jvm::handled(env, [&]() -> jint {
+        auto *value = pointer<Mesh>(mesh);
+        return value && value->layout ? static_cast<jint>(value->layout->id) : 0;
+    });
+}
+
+AT_EXPORT(jint, terrainLayout)(JNIEnv *env, jclass) {
+    return jvm::handled(env, [&]() -> jint {
+        Renderer &renderer = Renderer::get();
+        return static_cast<jint>(renderer.terrain && renderer.terrain->extendedVertices() ? renderer.layouts.extendedTerrainLayout()
+                                                                                         : renderer.layouts.terrainLayout());
+    });
+}
+
+AT_EXPORT(jint, textureSampling)(JNIEnv *env, jclass, jlong texture) {
+    return jvm::handled(env, [&]() -> jint {
+        auto *value = pointer<Texture>(texture);
+        if (!value) return 0;
+        return static_cast<jint>((value->linear() ? 1 : 0) | (value->mipmapped() ? 2 : 0) | (value->clampFlags() << 2));
+    });
+}
+
+AT_EXPORT(jlong, textureSampler)(JNIEnv *env, jclass, jlong texture) {
+    return jvm::handled(env, [&]() -> jlong {
+        Renderer::get().waitIdle();
+        auto *target = pointer<Texture>(texture);
+        return target && target->image ? reinterpret_cast<jlong>(target->sampler()) : 0;
+    });
+}
+
+AT_EXPORT(jlong, textureImageHandle)(JNIEnv *env, jclass, jlong texture) {
+    return jvm::handled(env, [&]() -> jlong {
+        Renderer::get().waitIdle();
+        auto *target = pointer<Texture>(texture);
+        return target && target->image ? reinterpret_cast<jlong>(target->sampledView()) : 0;
+    });
+}
+
+AT_EXPORT(jlongArray, textureImage)(JNIEnv *env, jclass, jlong texture) {
+    return jvm::handled(env, [&]() -> jlongArray {
+        Renderer::get().waitIdle();
+        auto *target = pointer<Texture>(texture);
+        if (!target || !target->image) return nullptr;
+        GpuImage &image = *target->image;
+        return longs(env, {
+                         reinterpret_cast<jlong>(image.handle), reinterpret_cast<jlong>(target->sampledView()),
+                         static_cast<jlong>(image.format), static_cast<jlong>(image.width),
+                         static_cast<jlong>(image.height), static_cast<jlong>(target->sampledLevels()),
+                         static_cast<jlong>(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                     });
     });
 }
 

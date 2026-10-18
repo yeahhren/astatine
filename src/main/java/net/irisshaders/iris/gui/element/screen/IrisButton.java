@@ -2,63 +2,67 @@ package net.irisshaders.iris.gui.element.screen;
 
 import net.irisshaders.iris.gl.uniform.FloatSupplier;
 import net.irisshaders.iris.gui.GuiUtil;
+import net.irisshaders.iris.gui.IrisGraphics;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.Tooltip;
-import net.minecraft.network.chat.Component;
-import org.jetbrains.annotations.Nullable;
+import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.text.Text;
 
-public class IrisButton extends Button {
+public class IrisButton extends ButtonWidget {
 	private final FloatSupplier alphaSupplier;
+	private final OnPress onPress;
 
-	public IrisButton(int pButton0, int pInt1, int pInt2, int pInt3, Component pComponent4, OnPress pButton$OnPress5,
-		CreateNarration pButton$CreateNarration6, FloatSupplier alpha) {
-		super(pButton0, pInt1, pInt2, pInt3, pComponent4, pButton$OnPress5, pButton$CreateNarration6);
+	public IrisButton(int pButton0, int pInt1, int pInt2, int pInt3, Text pComponent4, OnPress pButton$OnPress5, FloatSupplier alpha) {
+		super(0, pButton0, pInt1, pInt2, pInt3, pComponent4.getFormattedString());
 		this.alphaSupplier = alpha;
+		this.onPress = pButton$OnPress5;
 	}
 
-	public static IrisButton.Builder iris$builder(Component pComponent0, Button.OnPress pButton$OnPress1, FloatSupplier alpha) {
+	public static IrisButton.Builder iris$builder(Text pComponent0, OnPress pButton$OnPress1, FloatSupplier alpha) {
 		return new IrisButton.Builder(pComponent0, pButton$OnPress1, alpha);
 	}
 
-	@Override
 	public float getAlpha() {
 		return this.alphaSupplier.getAsFloat();
 	}
 
-	@Override
-	protected void extractContents(GuiGraphicsExtractor guiGraphics, int pInt1, int pInt2, float pFloat3) {
-		Minecraft lvMinecraft5 = Minecraft.getInstance();
-		//guiGraphics.flush();
-		// TODO 1.21.6
-		//RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, this.isHoveredOrFocused() ? this.alphaSupplier.getAsFloat() * 1.8f : this
-		// .alphaSupplier.getAsFloat());
-		GuiUtil.bindIrisWidgetsTexture();
-		GuiUtil.drawButton(guiGraphics, this.getX(), this.getY(), this.getWidth(), this.getHeight(), this.isHoveredOrFocused(),
-			!this.isActive());
-		//guiGraphics.flush();
-		//RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, this.alphaSupplier.getAsFloat());
-		int lvInt6 = this.active ? 16777215 : 10526880;
-		this.extractDefaultLabel(guiGraphics.textRendererForWidget(this, GuiGraphicsExtractor.HoveredTextEffects.NONE));
-		//guiGraphics.flush();
-		//RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
+	public void onPress() {
+		this.onPress.onPress(this);
+	}
 
+	public void setMessage(Text message) {
+		this.message = message.getFormattedString();
+	}
+
+	@Override
+	public void render(Minecraft minecraft, int mouseX, int mouseY) {
+		if (!this.visible) {
+			return;
+		}
+
+		this.hovered = mouseX >= this.x && mouseY >= this.y && mouseX < this.x + this.width && mouseY < this.y + this.height;
+		IrisGraphics guiGraphics = IrisGraphics.INSTANCE;
+		guiGraphics.setAlpha(this.isHovered() ? Math.min(1.0f, this.alphaSupplier.getAsFloat() * 1.8f) : this.alphaSupplier.getAsFloat());
+		GuiUtil.bindIrisWidgetsTexture();
+		GuiUtil.drawButton(guiGraphics, this.x, this.y, this.width, this.height, this.isHovered(), !this.active);
+		guiGraphics.setAlpha(1.0f);
+		int lvInt6 = this.active ? 16777215 : 10526880;
+		this.drawCenteredString(minecraft.textRenderer, this.message, this.x + this.width / 2, this.y + (this.height - 8) / 2, lvInt6);
+	}
+
+	public interface OnPress {
+		void onPress(IrisButton button);
 	}
 
 	public static class Builder {
-		private final Component message;
-		private final Button.OnPress onPress;
+		private final Text message;
+		private final OnPress onPress;
 		private final FloatSupplier alpha;
-		@Nullable
-		private Tooltip tooltip;
 		private int x;
 		private int y;
 		private int width = 150;
 		private int height = 20;
-		private Button.CreateNarration createNarration = Button.DEFAULT_NARRATION;
 
-		public Builder(Component pButton$Builder0, Button.OnPress pButton$OnPress1, FloatSupplier alpha) {
+		public Builder(Text pButton$Builder0, OnPress pButton$OnPress1, FloatSupplier alpha) {
 			this.message = pButton$Builder0;
 			this.onPress = pButton$OnPress1;
 			this.alpha = alpha;
@@ -85,20 +89,8 @@ public class IrisButton extends Button {
 			return this.pos(pButton$Builder0, pInt1).size(pInt2, pInt3);
 		}
 
-		public IrisButton.Builder tooltip(@Nullable Tooltip pButton$Builder0) {
-			this.tooltip = pButton$Builder0;
-			return this;
-		}
-
-		public IrisButton.Builder createNarration(Button.CreateNarration pButton$Builder0) {
-			this.createNarration = pButton$Builder0;
-			return this;
-		}
-
 		public IrisButton build() {
-			IrisButton lvButton1 = new IrisButton(this.x, this.y, this.width, this.height, this.message, this.onPress, this.createNarration,
-				this.alpha);
-			lvButton1.setTooltip(this.tooltip);
+			IrisButton lvButton1 = new IrisButton(this.x, this.y, this.width, this.height, this.message, this.onPress, this.alpha);
 			lvButton1.active = true;
 			return lvButton1;
 		}

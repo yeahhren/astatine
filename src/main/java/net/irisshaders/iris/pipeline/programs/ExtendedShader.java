@@ -224,6 +224,14 @@ public class ExtendedShader implements AutoCloseable {
 					}
 
 					bindings.put(block.name(), List.of(slice));
+				} else if (block.set() == 0 && block.kind() == ShaderResourceLayout.Kind.STORAGE_BUFFER && block.name().startsWith("iris_")) {
+					Object buffer = resources.get(block.name().substring(5));
+
+					if (!(buffer instanceof GpuBufferSlice)) {
+						throw new IllegalStateException("missing world storage buffer for " + this.name + ": " + block.name());
+					}
+
+					bindings.put(block.name(), List.of((GpuBufferSlice) buffer));
 				}
 			}
 

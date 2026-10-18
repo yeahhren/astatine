@@ -91,6 +91,8 @@ namespace at {
         static Renderer &get() { return *instance; }
         static bool ready() { return instance != nullptr; }
 
+        static const Instance &vulkan();
+
         static void initialize(const WindowSystem &system, bool validation, std::string cacheFile);
 
         static void shutdown();
@@ -176,7 +178,7 @@ namespace at {
 
         bool prepare(u64 bytes, u64 sectionBytes = 0);
 
-        void bindState(const VertexLayout &layout, u32 topology);
+        bool bindState(const VertexLayout &layout, u32 topology);
 
         u32 record();
 
@@ -197,6 +199,28 @@ namespace at {
         void markSetupTransfers() { setupTransfers = true; }
         VkCommandBuffer commands() const { return main; }
         FrameStream &sectionStream() const { return *sections; }
+        FrameStream &recordStream() const { return *records; }
+        FrameStream &environmentStream() const { return *environments; }
+        [[nodiscard]] u32 currentFrame() const { return frameIndex; }
+        RenderPassType &offscreenPass(bool depth) const { return depth ? *offscreenDepthPass : *offscreenColorPass; }
+
+        void endCurrentPass() {
+            ensureRecording();
+            endPass();
+        }
+
+        void bindFramebufferTarget(Framebuffer *framebuffer);
+
+        void forgetBindings();
+
+        [[nodiscard]] u64 presentedFrames() {
+            std::lock_guard guard(queueLock);
+            return framesPresented;
+        }
+
+
+        i32 terrainLayer = -1;
+        bool externalPass = false;
         FrameStream &dataStream() const { return *stream; }
         DrawTarget &currentTarget() const { return *target; }
 
@@ -278,6 +302,13 @@ namespace at {
 
         void bindPipeline(VkPipeline pipeline);
 
+        void bindFixedSets();
+
+
+        void useFixedSets();
+
+        bool fixedSetsBound = true;
+
         void bindMesh(const GeometryPool *pool);
 
         void bindIndices(VkBuffer buffer, u64 offset);
@@ -312,6 +343,10 @@ namespace at {
         std::unique_ptr<FrameStream> environments;
         std::unique_ptr<GpuBuffer> quadIndices;
         std::unique_ptr<class Texture> fallback;
+        class Texture *defaultNormals = nullptr;
+        class Texture *defaultSpecular = nullptr;
+
+        i32 companionHandle(class Texture *companion, class Texture *fallbackCompanion);
         struct Chunk {
             u8 *data = nullptr;
             u32 capacity = 0;
@@ -371,6 +406,13 @@ namespace at {
         PrimitivePlan plan;
         VkPipeline boundPipeline = VK_NULL_HANDLE;
         i64 recordIndex = -1;
+        i32 recordBlend[4] = {0, 0, 0, 0};
+        bool irisFogOff = false;
+        bool irisFogDisabled = false;
+        i32 irisRenderStage = 0;
+        bool recordFogOff = false;
+        i32 recordStage = 0;
+        static constexpr u32 FOG_OFF_FLAG = 1u << 30;
         i32 currentEnvironment = 0;
         u32 textureFlags = 0;
         u64 textureHandles[2] = {~0ull, ~0ull};

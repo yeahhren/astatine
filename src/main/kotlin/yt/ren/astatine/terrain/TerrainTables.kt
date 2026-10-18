@@ -15,6 +15,7 @@ import yt.ren.astatine.memory.Memory
 import yt.ren.astatine.mixin.terrain.ModelEntryAccessor
 import yt.ren.astatine.mixin.terrain.WeightedBakedModelAccessor
 import yt.ren.astatine.mixin.terrain.WeightedEntryAccessor
+import yt.ren.astatine.shaderpack.Shaderpacks
 import java.util.IdentityHashMap
 
 object TerrainTables {
@@ -135,6 +136,10 @@ object TerrainTables {
                     Minecraft.isAmbientOcclusionEnabled(),
                     minecraft.options.allowBlockAlternatives,
                     !world.dimension.hasNoSky(),
+                    Shaderpacks.terrainBlockIds(),
+                    Shaderpacks.ambientOcclusionLevel(),
+                    Shaderpacks.directionalShading(),
+                    Shaderpacks.separateAo(),
                 )
             } finally {
                 Memory.free(modelData)

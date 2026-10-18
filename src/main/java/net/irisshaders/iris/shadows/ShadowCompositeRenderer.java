@@ -185,8 +185,8 @@ public class ShadowCompositeRenderer {
 				this.renderTargets.get(index).generateMipmaps(pass.stageReadsFromAlt.contains(index));
 			}
 
-			var level = Minecraft.getInstance().level;
-			pass.program.draw(pass.framebuffer.getColorViews(), pass.viewportScale, level == null ? 0 : level.getGameTime(),
+			var level = Minecraft.getInstance().world;
+			pass.program.draw(pass.framebuffer.getColorViews(), pass.viewportScale, level == null ? 0 : level.getTime(),
 				SystemTimeUniforms.COUNTER.getAsInt());
 		}
 	}

@@ -1,27 +1,24 @@
 package net.irisshaders.iris.pbr.util;
 
-import com.mojang.blaze3d.platform.NativeImage;
-import net.caffeinemc.mods.sodium.api.util.ColorABGR;
-
 public class ImageManipulationUtil {
-	public static NativeImage scaleNearestNeighbor(NativeImage image, int newWidth, int newHeight) {
-		NativeImage scaled = new NativeImage(image.format(), newWidth, newHeight, false);
-		float xScale = (float) newWidth / image.getWidth();
-		float yScale = (float) newHeight / image.getHeight();
+	public static int[] scaleNearestNeighbor(int[] image, int width, int height, int newWidth, int newHeight) {
+		int[] scaled = new int[newWidth * newHeight];
+		float xScale = (float) newWidth / width;
+		float yScale = (float) newHeight / height;
 		for (int y = 0; y < newHeight; ++y) {
 			for (int x = 0; x < newWidth; ++x) {
 				float unscaledX = (x + 0.5f) / xScale;
 				float unscaledY = (y + 0.5f) / yScale;
-				scaled.setPixel(x, y, image.getPixel((int) unscaledX, (int) unscaledY));
+				scaled[y * newWidth + x] = image[(int) unscaledY * width + (int) unscaledX];
 			}
 		}
 		return scaled;
 	}
 
-	public static NativeImage scaleBilinear(NativeImage image, int newWidth, int newHeight) {
-		NativeImage scaled = new NativeImage(image.format(), newWidth, newHeight, false);
-		float xScale = (float) newWidth / image.getWidth();
-		float yScale = (float) newHeight / image.getHeight();
+	public static int[] scaleBilinear(int[] image, int width, int height, int newWidth, int newHeight) {
+		int[] scaled = new int[newWidth * newHeight];
+		float xScale = (float) newWidth / width;
+		float yScale = (float) newHeight / height;
 		for (int y = 0; y < newHeight; ++y) {
 			for (int x = 0; x < newWidth; ++x) {
 				float unscaledX = (x + 0.5f) / xScale;
@@ -42,10 +39,10 @@ public class ImageManipulationUtil {
 				if (y0 < 0) {
 					y0valid = false;
 				}
-				if (x1 >= image.getWidth()) {
+				if (x1 >= width) {
 					x1valid = false;
 				}
-				if (y1 >= image.getHeight()) {
+				if (y1 >= height) {
 					y1valid = false;
 				}
 
@@ -61,10 +58,10 @@ public class ImageManipulationUtil {
 					float weightBL = leftWeight * bottomWeight;
 					float weightBR = rightWeight * bottomWeight;
 
-					int colorTL = image.getPixel(x0, y0);
-					int colorTR = image.getPixel(x1, y0);
-					int colorBL = image.getPixel(x0, y1);
-					int colorBR = image.getPixel(x1, y1);
+					int colorTL = image[y0 * width + x0];
+					int colorTR = image[y0 * width + x1];
+					int colorBL = image[y1 * width + x0];
+					int colorBR = image[y1 * width + x1];
 
 					finalColor = blendColor(colorTL, colorTR, colorBL, colorBR, weightTL, weightTR, weightBL, weightBR);
 				} else if (x0valid & x1valid) {
@@ -72,8 +69,8 @@ public class ImageManipulationUtil {
 					float rightWeight = unscaledX - (x0 + 0.5f);
 
 					int validY = y0valid ? y0 : y1;
-					int colorLeft = image.getPixel(x0, validY);
-					int colorRight = image.getPixel(x1, validY);
+					int colorLeft = image[validY * width + x0];
+					int colorRight = image[validY * width + x1];
 
 					finalColor = blendColor(colorLeft, colorRight, leftWeight, rightWeight);
 				} else if (y0valid & y1valid) {
@@ -81,33 +78,29 @@ public class ImageManipulationUtil {
 					float bottomWeight = unscaledY - (y0 + 0.5f);
 
 					int validX = x0valid ? x0 : x1;
-					int colorTop = image.getPixel(validX, y0);
-					int colorBottom = image.getPixel(validX, y1);
+					int colorTop = image[y0 * width + validX];
+					int colorBottom = image[y1 * width + validX];
 
 					finalColor = blendColor(colorTop, colorBottom, topWeight, bottomWeight);
 				} else {
-					finalColor = image.getPixel(x0valid ? x0 : x1, y0valid ? y0 : y1);
+					finalColor = image[(y0valid ? y0 : y1) * width + (x0valid ? x0 : x1)];
 				}
-				scaled.setPixel(x, y, finalColor);
+				scaled[y * newWidth + x] = finalColor;
 			}
 		}
 		return scaled;
 	}
 
-	private static int packABGR(int a, int b, int g, int r) {
-		return ColorABGR.pack(r, g, b, a);
+	private static int channel(int color, int shift) {
+		return color >>> shift & 0xFF;
 	}
 
 	private static int blendColor(int c0, int c1, int c2, int c3, float w0, float w1, float w2, float w3) {
-		return packABGR(
-			blendChannel(ColorABGR.unpackAlpha(c0), ColorABGR.unpackAlpha(c1), ColorABGR.unpackAlpha(c2), ColorABGR.unpackAlpha(c3), w0, w1,
-				w2, w3),
-			blendChannel(ColorABGR.unpackBlue(c0), ColorABGR.unpackBlue(c1), ColorABGR.unpackBlue(c2), ColorABGR.unpackBlue(c3), w0, w1, w2,
-				w3),
-			blendChannel(ColorABGR.unpackGreen(c0), ColorABGR.unpackGreen(c1), ColorABGR.unpackGreen(c2), ColorABGR.unpackGreen(c3), w0, w1,
-				w2, w3),
-			blendChannel(ColorABGR.unpackRed(c0), ColorABGR.unpackRed(c1), ColorABGR.unpackRed(c2), ColorABGR.unpackRed(c3), w0, w1, w2,
-				w3));
+		int result = 0;
+		for (int shift = 0; shift < 32; shift += 8) {
+			result |= blendChannel(channel(c0, shift), channel(c1, shift), channel(c2, shift), channel(c3, shift), w0, w1, w2, w3) << shift;
+		}
+		return result;
 	}
 
 	private static int blendChannel(int v0, int v1, int v2, int v3, float w0, float w1, float w2, float w3) {
@@ -115,10 +108,11 @@ public class ImageManipulationUtil {
 	}
 
 	private static int blendColor(int c0, int c1, float w0, float w1) {
-		return packABGR(blendChannel(ColorABGR.unpackAlpha(c0), ColorABGR.unpackAlpha(c1), w0, w1),
-			blendChannel(ColorABGR.unpackBlue(c0), ColorABGR.unpackBlue(c1), w0, w1),
-			blendChannel(ColorABGR.unpackGreen(c0), ColorABGR.unpackGreen(c1), w0, w1),
-			blendChannel(ColorABGR.unpackRed(c0), ColorABGR.unpackRed(c1), w0, w1));
+		int result = 0;
+		for (int shift = 0; shift < 32; shift += 8) {
+			result |= blendChannel(channel(c0, shift), channel(c1, shift), w0, w1) << shift;
+		}
+		return result;
 	}
 
 	private static int blendChannel(int v0, int v1, float w0, float w1) {

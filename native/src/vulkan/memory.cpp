@@ -95,14 +95,25 @@ namespace at {
     GpuImage::GpuImage(const Device &device, MemoryAllocator &allocator, u32 width, u32 height, u32 levels,
                        VkFormat format,
                        VkImageAspectFlags aspect, VkImageUsageFlags usage)
-        : width(width), height(height), levels(levels), format(format), aspect(aspect), device(device),
-          allocator(allocator) {
+        : GpuImage(device, allocator, ImageShape{.width = width, .height = height}, levels, format, aspect, usage) {
+    }
+
+    GpuImage::GpuImage(const Device &device, MemoryAllocator &allocator, const ImageShape &shape, u32 levels, VkFormat format,
+                       VkImageAspectFlags aspect, VkImageUsageFlags usage)
+        : width(shape.width), height(shape.height), depth(shape.depth), layers(shape.layers), levels(levels), format(format),
+          aspect(aspect), viewType(shape.viewType), device(device), allocator(allocator) {
         VkImageCreateInfo info{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-        info.imageType = VK_IMAGE_TYPE_2D;
+        bool cube = viewType == VK_IMAGE_VIEW_TYPE_CUBE || viewType == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+        info.flags = cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
+        info.imageType = viewType == VK_IMAGE_VIEW_TYPE_3D
+                             ? VK_IMAGE_TYPE_3D
+                             : viewType == VK_IMAGE_VIEW_TYPE_1D || viewType == VK_IMAGE_VIEW_TYPE_1D_ARRAY
+                                   ? VK_IMAGE_TYPE_1D
+                                   : VK_IMAGE_TYPE_2D;
         info.format = format;
-        info.extent = {.width = width, .height = height, .depth = 1};
+        info.extent = {.width = width, .height = info.imageType == VK_IMAGE_TYPE_1D ? 1 : height, .depth = depth};
         info.mipLevels = levels;
-        info.arrayLayers = 1;
+        info.arrayLayers = layers;
         info.samples = VK_SAMPLE_COUNT_1_BIT;
         info.tiling = VK_IMAGE_TILING_OPTIMAL;
         info.usage = usage;
@@ -125,9 +136,9 @@ namespace at {
     VkImageView GpuImage::createView(u32 levelCount) const {
         VkImageViewCreateInfo info{.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         info.image = handle;
-        info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        info.viewType = viewType;
         info.format = format;
-        info.subresourceRange = {.aspectMask = aspect, .baseMipLevel = 0, .levelCount = levelCount, .baseArrayLayer = 0, .layerCount = 1};
+        info.subresourceRange = {.aspectMask = aspect, .baseMipLevel = 0, .levelCount = levelCount, .baseArrayLayer = 0, .layerCount = layers};
         VkImageView created;
         check(vkCreateImageView(device.handle, &info, nullptr, &created), "vkCreateImageView");
         return created;

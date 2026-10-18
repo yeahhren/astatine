@@ -3,21 +3,17 @@ package net.irisshaders.iris.pipeline;
 import com.mojang.renderpearl.api.textures.GpuTextureView;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMaps;
-import net.caffeinemc.mods.sodium.client.render.chunk.vertex.format.ChunkMeshFormats;
 import net.irisshaders.iris.compat.dh.DHCompat;
 import net.irisshaders.iris.features.FeatureFlags;
 import net.irisshaders.iris.gl.texture.TextureType;
 import net.irisshaders.iris.helpers.Tri;
-import net.irisshaders.iris.mixin.LevelRendererAccessor;
 import net.irisshaders.iris.shaderpack.materialmap.WorldRenderingSettings;
 import net.irisshaders.iris.shaderpack.properties.CloudSetting;
 import net.irisshaders.iris.shaderpack.properties.ParticleRenderingSettings;
 import net.irisshaders.iris.shaderpack.texture.TextureStage;
 import net.irisshaders.iris.uniforms.FrameUpdateNotifier;
-import net.minecraft.client.Camera;
-import net.minecraft.client.gui.components.debug.DebugScreenDisplayer;
-import net.minecraft.client.renderer.state.level.CameraRenderState;
 
+import java.util.List;
 import java.util.OptionalInt;
 
 public class VanillaRenderingPipeline implements WorldRenderingPipeline {
@@ -26,7 +22,7 @@ public class VanillaRenderingPipeline implements WorldRenderingPipeline {
 		WorldRenderingSettings.INSTANCE.setUseSeparateAo(false);
 		WorldRenderingSettings.INSTANCE.setSeparateEntityDraws(false);
 		WorldRenderingSettings.INSTANCE.setAmbientOcclusionLevel(1.0f);
-		WorldRenderingSettings.INSTANCE.setVertexFormat(ChunkMeshFormats.COMPACT);
+		WorldRenderingSettings.INSTANCE.setExtendedVertexFormat(false);
 		WorldRenderingSettings.INSTANCE.setVoxelizeLightBlocks(false);
 		WorldRenderingSettings.INSTANCE.setBreaksAnisotropy(false);
 		WorldRenderingSettings.INSTANCE.setBlockTypeIds(Object2ObjectMaps.emptyMap());
@@ -38,12 +34,12 @@ public class VanillaRenderingPipeline implements WorldRenderingPipeline {
 	}
 
 	@Override
-	public void renderShadows(LevelRendererAccessor worldRenderer, Camera camera, CameraRenderState renderState) {
+	public void renderShadows(float tickDelta) {
 		// stub: nothing to do here
 	}
 
 	@Override
-	public void addDebugText(DebugScreenDisplayer messages) {
+	public void addDebugText(List<String> messages) {
 		// stub: nothing to do here
 	}
 

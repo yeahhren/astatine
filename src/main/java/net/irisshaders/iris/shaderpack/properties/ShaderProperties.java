@@ -7,7 +7,7 @@ import it.unimi.dsi.fastutil.objects.Object2BooleanOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.irisshaders.iris.Iris;
-import net.irisshaders.iris.gl.IrisRenderSystem;
+import net.irisshaders.iris.features.FeatureFlags;
 import net.irisshaders.iris.gl.blending.AlphaTest;
 import net.irisshaders.iris.gl.blending.AlphaTestFunction;
 import net.irisshaders.iris.gl.blending.BlendMode;
@@ -317,7 +317,7 @@ public class ShaderProperties {
 			handlePassDirective("blend.", key, value, pass -> {
 				if (pass.contains(".")) {
 
-					if (!IrisRenderSystem.supportsBufferBlending()) {
+					if (!FeatureFlags.PER_BUFFER_BLENDING.isUsable()) {
 						throw new RuntimeException(
 							"Buffer blending is not supported on this platform, however it was attempted to be used!");
 					}

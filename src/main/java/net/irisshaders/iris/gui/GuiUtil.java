@@ -1,15 +1,18 @@
 package net.irisshaders.iris.gui;
 
+import net.irisshaders.iris.Iris;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.client.resources.sounds.SimpleSoundInstance;
-import net.minecraft.locale.Language;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.resources.Identifier;
-import net.minecraft.sounds.SoundEvents;
+import net.minecraft.client.render.TextRenderer;
+import net.minecraft.client.resource.language.I18n;
+import net.minecraft.client.sound.instance.SimpleSoundInstance;
+import net.minecraft.resource.Identifier;
+import net.minecraft.text.Formatting;
+import net.minecraft.text.LiteralText;
+import net.minecraft.text.Style;
+import net.minecraft.text.Text;
+
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * Class serving as abstraction and
@@ -21,8 +24,13 @@ import net.minecraft.sounds.SoundEvents;
  * some code that will be changed.
  */
 public final class GuiUtil {
-	public static final Identifier IRIS_WIDGETS_TEX = Identifier.fromNamespaceAndPath("iris", "textures/gui/widgets.png");
-	private static final Component ELLIPSIS = Component.literal("...");
+	public static final Identifier IRIS_WIDGETS_TEX = new Identifier("iris", "textures/gui/widgets.png");
+	private static final Text ELLIPSIS = new LiteralText("...");
+	private static final Formatting[] COLORS = {Formatting.BLACK, Formatting.DARK_BLUE, Formatting.DARK_GREEN, Formatting.DARK_AQUA,
+		Formatting.DARK_RED, Formatting.DARK_PURPLE, Formatting.GOLD, Formatting.GRAY, Formatting.DARK_GRAY, Formatting.BLUE,
+		Formatting.GREEN, Formatting.AQUA, Formatting.RED, Formatting.LIGHT_PURPLE, Formatting.YELLOW, Formatting.WHITE};
+	private static final int[] COLOR_VALUES = {0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xFFAA00, 0xAAAAAA, 0x555555,
+		0x5555FF, 0x55FF55, 0x55FFFF, 0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF};
 
 	private GuiUtil() {
 	}
@@ -31,12 +39,80 @@ public final class GuiUtil {
 		return Minecraft.getInstance();
 	}
 
+	public static TextRenderer font() {
+		return client().textRenderer;
+	}
+
+	public static Text literal(String text) {
+		return new LiteralText(text);
+	}
+
+	public static Text empty() {
+		return new LiteralText("");
+	}
+
+	public static Text translatable(String key, Object... format) {
+		String packTranslation = packTranslation(key);
+
+		if (packTranslation != null) {
+			return new LiteralText(format.length == 0 ? packTranslation : String.format(packTranslation, format));
+		}
+
+		return new LiteralText(I18n.translate(key, format));
+	}
+
+	public static Text withStyle(Text text, Formatting... formats) {
+		Style style = text.getStyle();
+
+		for (Formatting format : formats) {
+			if (format.isColor()) {
+				style.setColor(format);
+			} else if (format == Formatting.BOLD) {
+				style.setBold(true);
+			} else if (format == Formatting.ITALIC) {
+				style.setItalic(true);
+			} else if (format == Formatting.UNDERLINE) {
+				style.setUnderlined(true);
+			} else if (format == Formatting.STRIKETHROUGH) {
+				style.setStrikethrough(true);
+			} else if (format == Formatting.OBFUSCATED) {
+				style.setObfuscated(true);
+			}
+		}
+
+		return text;
+	}
+
+	public static Text withColor(Text text, int rgb) {
+		int best = 0;
+		long bestDistance = Long.MAX_VALUE;
+
+		for (int i = 0; i < COLOR_VALUES.length; i++) {
+			long dr = ((rgb >> 16) & 0xFF) - ((COLOR_VALUES[i] >> 16) & 0xFF);
+			long dg = ((rgb >> 8) & 0xFF) - ((COLOR_VALUES[i] >> 8) & 0xFF);
+			long db = (rgb & 0xFF) - (COLOR_VALUES[i] & 0xFF);
+			long distance = dr * dr + dg * dg + db * db;
+
+			if (distance < bestDistance) {
+				bestDistance = distance;
+				best = i;
+			}
+		}
+
+		text.getStyle().setColor(COLORS[best]);
+		return text;
+	}
+
+	public static int width(Text text) {
+		return font().getWidth(text.getFormattedString());
+	}
+
 	/**
 	 * Binds Iris's widgets texture to be
 	 * used for succeeding draw calls.
 	 */
 	public static void bindIrisWidgetsTexture() {
-		//RenderSystem.setShaderTexture(0, Minecraft.getInstance().getTextureManager().getTexture(IRIS_WIDGETS_TEX).getTextureView(), RenderSystem.getSamplerCache().getSampler(AddressMode.CLAMP_TO_EDGE, AddressMode.CLAMP_TO_EDGE, FilterMode.NEAREST, FilterMode.NEAREST));
+		client().getTextureManager().bind(IRIS_WIDGETS_TEX);
 	}
 
 	/**
@@ -50,8 +126,7 @@ public final class GuiUtil {
 	 * @param hovered  Whether the button is being hovered over with the mouse
 	 * @param disabled Whether the button should use the "disabled" texture
 	 */
-	public static void drawButton(GuiGraphicsExtractor guiGraphics, int x, int y, int width, int height, boolean hovered,
-		boolean disabled) {
+	public static void drawButton(IrisGraphics guiGraphics, int x, int y, int width, int height, boolean hovered, boolean disabled) {
 		// Create variables for half of the width and height.
 		// Will not be exact when width and height are odd, but
 		// that case is handled within the draw calls.
@@ -62,16 +137,15 @@ public final class GuiUtil {
 		int vOffset = disabled ? 46 : hovered ? 86 : 66;
 
 		// Top left section
-		guiGraphics.blit(RenderPipelines.GUI_TEXTURED, IRIS_WIDGETS_TEX, x, y, 0, vOffset, halfWidth, halfHeight, 256, 256);
+		guiGraphics.blit(IRIS_WIDGETS_TEX, x, y, 0, vOffset, halfWidth, halfHeight, 256, 256);
 		// Top right section
-		guiGraphics.blit(RenderPipelines.GUI_TEXTURED, IRIS_WIDGETS_TEX, x + halfWidth, y, 200 - (width - halfWidth), vOffset,
-			width - halfWidth, halfHeight, 256, 256);
+		guiGraphics.blit(IRIS_WIDGETS_TEX, x + halfWidth, y, 200 - (width - halfWidth), vOffset, width - halfWidth, halfHeight, 256, 256);
 		// Bottom left section
-		guiGraphics.blit(RenderPipelines.GUI_TEXTURED, IRIS_WIDGETS_TEX, x, y + halfHeight, 0, vOffset + (20 - (height - halfHeight)),
-			halfWidth, height - halfHeight, 256, 256);
+		guiGraphics.blit(IRIS_WIDGETS_TEX, x, y + halfHeight, 0, vOffset + (20 - (height - halfHeight)), halfWidth, height - halfHeight,
+			256, 256);
 		// Bottom right section
-		guiGraphics.blit(RenderPipelines.GUI_TEXTURED, IRIS_WIDGETS_TEX, x + halfWidth, y + halfHeight, 200 - (width - halfWidth),
-			vOffset + (20 - (height - halfHeight)), width - halfWidth, height - halfHeight, 256, 256);
+		guiGraphics.blit(IRIS_WIDGETS_TEX, x + halfWidth, y + halfHeight, 200 - (width - halfWidth), vOffset + (20 - (height - halfHeight)),
+			width - halfWidth, height - halfHeight, 256, 256);
 	}
 
 	/**
@@ -83,20 +157,20 @@ public final class GuiUtil {
 	 * @param width  The width of the panel
 	 * @param height The height of the panel
 	 */
-	public static void drawPanel(GuiGraphicsExtractor guiGraphics, int x, int y, int width, int height) {
+	public static void drawPanel(IrisGraphics guiGraphics, int x, int y, int width, int height) {
 		int borderColor = 0xDEDEDEDE;
 		int innerColor = 0xDE000000;
 
 		// Top border section
-		guiGraphics.fill(RenderPipelines.GUI, x, y, x + width, y + 1, borderColor);
+		guiGraphics.fill(x, y, x + width, y + 1, borderColor);
 		// Bottom border section
-		guiGraphics.fill(RenderPipelines.GUI, x, (y + height) - 1, x + width, y + height, borderColor);
+		guiGraphics.fill(x, (y + height) - 1, x + width, y + height, borderColor);
 		// Left border section
-		guiGraphics.fill(RenderPipelines.GUI, x, y + 1, x + 1, (y + height) - 1, borderColor);
+		guiGraphics.fill(x, y + 1, x + 1, (y + height) - 1, borderColor);
 		// Right border section
-		guiGraphics.fill(RenderPipelines.GUI, (x + width) - 1, y + 1, x + width, (y + height) - 1, borderColor);
+		guiGraphics.fill((x + width) - 1, y + 1, x + width, (y + height) - 1, borderColor);
 		// Inner section
-		guiGraphics.fill(RenderPipelines.GUI, x + 1, y + 1, (x + width) - 1, (y + height) - 1, innerColor);
+		guiGraphics.fill(x + 1, y + 1, (x + width) - 1, (y + height) - 1, innerColor);
 	}
 
 	/**
@@ -106,8 +180,8 @@ public final class GuiUtil {
 	 * @param x    The x position of the panel
 	 * @param y    The y position of the panel
 	 */
-	public static void drawTextPanel(Font font, GuiGraphicsExtractor guiGraphics, Component text, int x, int y) {
-		drawPanel(guiGraphics, x, y, font.width(text) + 8, 16);
+	public static void drawTextPanel(TextRenderer font, IrisGraphics guiGraphics, Text text, int x, int y) {
+		drawPanel(guiGraphics, x, y, width(text) + 8, 16);
 		guiGraphics.text(font, text, x + 4, y + 4, 0xFFFFFFFF);
 	}
 
@@ -122,10 +196,11 @@ public final class GuiUtil {
 	 * @param width Width to shorten text to
 	 * @return a shortened text
 	 */
-	public static MutableComponent shortenText(Font font, MutableComponent text, int width) {
-		if (font.width(text) > width) {
-			return Component.literal(font.plainSubstrByWidth(text.getString(), width - font.width(ELLIPSIS))).append(ELLIPSIS)
-				.setStyle(text.getStyle());
+	public static Text shortenText(TextRenderer font, Text text, int width) {
+		if (width(text) > width) {
+			Text shortened = new LiteralText(font.trim(text.getString(), width - width(ELLIPSIS))).append(ELLIPSIS.copy());
+			shortened.setStyle(text.getStyle().copy());
+			return shortened;
 		}
 		return text;
 	}
@@ -140,11 +215,46 @@ public final class GuiUtil {
 	 * @param format          Formatting arguments for the translated text, if created
 	 * @return the translated text if found, otherwise the default provided
 	 */
-	public static MutableComponent translateOrDefault(MutableComponent defaultText, String translationDesc, Object... format) {
-		if (Language.getInstance().has(translationDesc)) {
-			return Component.translatable(translationDesc, format);
+	public static Text translateOrDefault(Text defaultText, String translationDesc, Object... format) {
+		if (hasTranslation(translationDesc)) {
+			return translatable(translationDesc, format);
 		}
 		return defaultText;
+	}
+
+	public static boolean hasTranslation(String key) {
+		return packTranslation(key) != null || !I18n.translate(key).equals(key);
+	}
+
+	public static String translationOrEmpty(String key) {
+		String packTranslation = packTranslation(key);
+
+		if (packTranslation != null) {
+			return packTranslation;
+		}
+
+		String translated = I18n.translate(key);
+		return translated.equals(key) ? "" : translated;
+	}
+
+	private static String packTranslation(String key) {
+		var pack = Iris.getCurrentPack();
+
+		if (pack.isEmpty()) {
+			return null;
+		}
+
+		var languages = pack.get().getLanguageMap();
+		String code = client().getLanguageManager().getLanguage().getCode().toLowerCase(Locale.ROOT);
+		Map<String, String> translations = languages.getTranslations(code);
+		String value = translations == null ? null : translations.get(key);
+
+		if (value == null) {
+			Map<String, String> fallback = languages.getTranslations("en_us");
+			value = fallback == null ? null : fallback.get(key);
+		}
+
+		return value;
 	}
 
 	/**
@@ -155,7 +265,7 @@ public final class GuiUtil {
 	 * or other action.
 	 */
 	public static void playButtonClickSound() {
-		client().getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1));
+		client().getSoundManager().play(SimpleSoundInstance.of(new Identifier("gui.button.press"), 1.0F));
 	}
 
 	/**
@@ -189,9 +299,9 @@ public final class GuiUtil {
 		 * @param x The x position to draw the icon at (left)
 		 * @param y The y position to draw the icon at (top)
 		 */
-		public void draw(GuiGraphicsExtractor guiGraphics, int x, int y) {
+		public void draw(IrisGraphics guiGraphics, int x, int y) {
 			// Draw the texture to the screen
-			guiGraphics.blit(RenderPipelines.GUI_TEXTURED, IRIS_WIDGETS_TEX, x, y, u, v, width, height, 256, 256);
+			guiGraphics.blit(IRIS_WIDGETS_TEX, x, y, u, v, width, height, 256, 256);
 		}
 
 		public int getWidth() {

@@ -1,5 +1,7 @@
 package net.irisshaders.iris.helpers;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.util.Objects;
 
 public record Tri<X, Y, Z>(X first, Y second, Z third) {
@@ -9,8 +11,7 @@ public record Tri<X, Y, Z>(X first, Y second, Z third) {
 	public boolean equals(Object obj) {
 		if (obj == this)
 			return true;
-		//noinspection rawtypes
-		if (!(obj instanceof Tri(Object first1, Object second1, Object third1)))
+        if (!(obj instanceof Tri(Object first1, Object second1, Object third1)))
 			return false;
 		return Objects.equals(first1, this.first) && Objects.equals(second1, this.second) && Objects.equals(third1, this.third);
 	}
@@ -26,7 +27,7 @@ public record Tri<X, Y, Z>(X first, Y second, Z third) {
 	}
 
 	@Override
-	public String toString() {
+	public @NotNull String toString() {
 		return "First: " + first.toString() + " Second: " + second.toString() + " Third: " + third.toString();
 	}
 }

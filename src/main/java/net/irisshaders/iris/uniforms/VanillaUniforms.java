@@ -10,7 +10,7 @@ public class VanillaUniforms {
 		Vector2f cachedScreenSize = new Vector2f();
 		// TODO 1.21.5: Not correct. Should be using viewport size.
 		uniforms.uniform2f(UniformUpdateFrequency.PER_FRAME, "iris_ScreenSize",
-			() -> cachedScreenSize.set(Minecraft.getInstance().gameRenderer.mainRenderTarget().width,
-				Minecraft.getInstance().gameRenderer.mainRenderTarget().height));
+			() -> cachedScreenSize.set(Minecraft.getInstance().width,
+				Minecraft.getInstance().height));
 	}
 }

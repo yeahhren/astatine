@@ -5,7 +5,7 @@
   "name": "Astatine",
   "description": "Vulkan renderer mod for 1.8.9.",
   "authors": ["Ren"],
-  "license": "All-Rights-Reserved",
+  "license": "AGPL-3.0",
   "environment": "client",
   "entrypoints": {
     "preLaunch": ["yt.ren.astatine.Astatine"]

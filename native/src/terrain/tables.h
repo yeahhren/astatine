@@ -85,9 +85,16 @@ namespace at::terrain {
         bool ambientOcclusion = true;
         bool alternatives = true;
         bool sky = true;
+        float ambientShade = 0.2f;
+        bool directionalShading = true;
+        bool separateAo = false;
+        u32 vertexUnits = 1;
+        std::vector<i16> packIds;
 
         [[nodiscard]] const BlockInfo &block(u16 state) const { return blocks[state]; }
 
         void loadModels(const i32 *data, std::size_t words);
+
+        void removeDirectionalShading();
     };
 } // namespace at::terrain

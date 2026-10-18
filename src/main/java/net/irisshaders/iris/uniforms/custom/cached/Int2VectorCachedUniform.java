@@ -1,7 +1,6 @@
 package net.irisshaders.iris.uniforms.custom.cached;
 
 import kroppeb.stareval.function.FunctionReturn;
-import net.irisshaders.iris.gl.IrisRenderSystem;
 import net.irisshaders.iris.gl.uniform.UniformUpdateFrequency;
 import net.irisshaders.iris.parsing.VectorType;
 import org.joml.Vector2i;
@@ -19,10 +18,6 @@ public class Int2VectorCachedUniform extends VectorCachedUniform<Vector2i> {
 		this.cached.set(other);
 	}
 
-	@Override
-	public void push(int location) {
-		IrisRenderSystem.uniform2i(location, this.cached.x, this.cached.y);
-	}
 
 	@Override
 	public void writeTo(FunctionReturn functionReturn) {

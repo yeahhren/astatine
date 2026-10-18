@@ -59,6 +59,7 @@ object GL {
     private const val CLEAR = 47
     private const val BIND_FRAMEBUFFER = 48
     private const val RELEASE_MESH = 49
+    private const val DRAW_IDS = 50
 
     private var cell = 0L
 
@@ -129,13 +130,20 @@ object GL {
     }
 
     @JvmStatic
-    fun enable(capability: Int) = op(ENABLE, capability)
+    fun enable(capability: Int) {
+        DrawState.enable(capability, true)
+        op(ENABLE, capability)
+    }
 
     @JvmStatic
-    fun disable(capability: Int) = op(DISABLE, capability)
+    fun disable(capability: Int) {
+        DrawState.enable(capability, false)
+        op(DISABLE, capability)
+    }
 
     @JvmStatic
     fun alphaFunc(function: Int, reference: Float) {
+        DrawState.alphaFunc(function, reference)
         val at = begin(ALPHA_FUNC, 2)
         Memory.putInt(at, function)
         Memory.putFloat(at + 4, reference)
@@ -145,13 +153,20 @@ object GL {
     fun colorMaterial(mode: Int) = op(COLOR_MATERIAL, mode)
 
     @JvmStatic
-    fun depthFunc(function: Int) = op(DEPTH_FUNC, function)
+    fun depthFunc(function: Int) {
+        DrawState.depthFunc(function)
+        op(DEPTH_FUNC, function)
+    }
 
     @JvmStatic
-    fun depthMask(mask: Boolean) = op(DEPTH_MASK, if (mask) 1 else 0)
+    fun depthMask(mask: Boolean) {
+        DrawState.depthMask(mask)
+        op(DEPTH_MASK, if (mask) 1 else 0)
+    }
 
     @JvmStatic
     fun blendFunc(sourceColor: Int, destinationColor: Int, sourceAlpha: Int, destinationAlpha: Int) {
+        DrawState.blendFunc(sourceColor, destinationColor, sourceAlpha, destinationAlpha)
         val at = begin(BLEND_FUNC, 4)
         Memory.putInt(at, sourceColor)
         Memory.putInt(at + 4, destinationColor)
@@ -178,21 +193,31 @@ object GL {
     fun fogRadial(radial: Boolean) = op(FOG_RADIAL, if (radial) 1 else 0)
 
     @JvmStatic
-    fun cullFace(face: Int) = op(CULL_FACE, face)
+    fun cullFace(face: Int) {
+        DrawState.cullFace(face)
+        op(CULL_FACE, face)
+    }
 
     @JvmStatic
     fun polygonOffset(factor: Float, units: Float) {
+        DrawState.polygonOffset(factor, units)
         val at = begin(POLYGON_OFFSET, 2)
         Memory.putFloat(at, factor)
         Memory.putFloat(at + 4, units)
     }
 
     @JvmStatic
-    fun logicOp(mode: Int) = op(LOGIC_OP, mode)
+    fun logicOp(mode: Int) {
+        DrawState.logicOp(mode)
+        op(LOGIC_OP, mode)
+    }
 
     @JvmStatic
-    fun colorMask(r: Boolean, g: Boolean, b: Boolean, a: Boolean) =
-        op(COLOR_MASK, (if (r) 1 else 0) or (if (g) 2 else 0) or (if (b) 4 else 0) or (if (a) 8 else 0))
+    fun colorMask(r: Boolean, g: Boolean, b: Boolean, a: Boolean) {
+        val mask = (if (r) 1 else 0) or (if (g) 2 else 0) or (if (b) 4 else 0) or (if (a) 8 else 0)
+        DrawState.colorMask(mask)
+        op(COLOR_MASK, mask)
+    }
 
     @JvmStatic
     fun texGenMode(coordinate: Int, mode: Int) = op(TEXGEN_MODE, coordinate, mode)
@@ -204,11 +229,15 @@ object GL {
     @JvmStatic
     fun activeTexture(unit: Int) {
         GLState.activeTexture(unit)
+        DrawState.activeTexture(unit)
         op(ACTIVE_TEXTURE, unit)
     }
 
     @JvmStatic
-    fun bindTexture(texture: Long) = op(BIND_TEXTURE, texture)
+    fun bindTexture(texture: Long) {
+        DrawState.bindTexture(texture)
+        op(BIND_TEXTURE, texture)
+    }
 
     @JvmStatic
     fun shadeModel(mode: Int) = op(SHADE_MODEL, mode)
@@ -247,16 +276,30 @@ object GL {
     }
 
     @JvmStatic
+    fun drawIds(entity: Int, blockEntity: Int, item: Int) {
+        val at = begin(DRAW_IDS, 3)
+        Memory.putInt(at, entity)
+        Memory.putInt(at + 4, blockEntity)
+        Memory.putInt(at + 8, item)
+    }
+
+    @JvmStatic
     fun overlay(r: Float, g: Float, b: Float, a: Float) = op(OVERLAY, r, g, b, a)
 
     @JvmStatic
     fun clearOverlay() = op(CLEAR_OVERLAY)
 
     @JvmStatic
-    fun pushAttributes() = op(PUSH_ATTRIB)
+    fun pushAttributes() {
+        DrawState.push()
+        op(PUSH_ATTRIB)
+    }
 
     @JvmStatic
-    fun popAttributes() = op(POP_ATTRIB)
+    fun popAttributes() {
+        DrawState.pop()
+        op(POP_ATTRIB)
+    }
 
     @JvmStatic
     fun matrixMode(mode: Int) {

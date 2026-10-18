@@ -7,6 +7,9 @@
 #include "terrain/tables.h"
 #include "terrain/terrain.h"
 
+#include <algorithm>
+#include <cstring>
+
 using namespace at;
 using namespace at::terrain;
 
@@ -20,7 +23,8 @@ static Terrain &exclusiveTerrain() {
 
 AT_EXPORT(void, terrainTables)(JNIEnv *env, jclass, jlong blocks, jlong models, jint modelWords, jlong sprites,
                                jboolean ambientOcclusion,
-                               jboolean alternatives, jboolean sky) {
+                               jboolean alternatives, jboolean sky, jlong packIds, jfloat ambientOcclusionLevel,
+                               jboolean directionalShading, jboolean separateAo) {
     jvm::handled(env, [&] {
         auto tables = std::make_shared<Tables>();
         const auto *source = pointer<const BlockInfo>(blocks);
@@ -35,6 +39,15 @@ AT_EXPORT(void, terrainTables)(JNIEnv *env, jclass, jlong blocks, jlong models, 
         tables->ambientOcclusion = ambientOcclusion;
         tables->alternatives = alternatives;
         tables->sky = sky;
+        tables->ambientShade = 1.0f - std::clamp(static_cast<float>(ambientOcclusionLevel), 0.0f, 1.0f) * 0.8f;
+        tables->directionalShading = directionalShading;
+        tables->separateAo = separateAo;
+        if (!directionalShading) tables->removeDirectionalShading();
+        if (packIds) {
+            const auto *ids = pointer<const i16>(packIds);
+            tables->packIds.assign(ids, ids + STATES);
+            tables->vertexUnits = EXTENDED_UNITS;
+        }
         Renderer::get().terrain->setTables(std::move(tables));
     });
 }
@@ -63,9 +76,9 @@ AT_EXPORT(void, terrainMarkDirty)(JNIEnv *env, jclass, jint minX, jint minY, jin
 
 AT_EXPORT(void, terrainSetup)(JNIEnv *env, jclass, jdouble x, jdouble y, jdouble z, jdouble eyeHeight, jint frame,
                               jint lookFace,
-                              jboolean smartCull, jboolean spectator, jboolean cameraInOpaque) {
+                              jboolean smartCull, jboolean spectator, jboolean cameraInOpaque, jboolean frustumCull) {
     jvm::handled(env, [&] {
-        u32 flags = (smartCull ? 1u : 0u) | (spectator ? 2u : 0u) | (cameraInOpaque ? 4u : 0u);
+        u32 flags = (smartCull ? 1u : 0u) | (spectator ? 2u : 0u) | (cameraInOpaque ? 4u : 0u) | (frustumCull ? 0u : 8u);
         Renderer::get().command(op::TERRAIN_SETUP, op::TerrainSetup{
                                     x, y, z, eyeHeight, frame, lookFace, flags, SCHEDULE_CAP
                                 });
@@ -171,6 +184,24 @@ AT_EXPORT(jint, terrainDraw)(JNIEnv *env
         renderer.command(op::TERRAIN_DRAW, op::Flag{index, 0});
         return static_cast<jint>(renderer.terrain->drawn(index));
     });
+}
+
+AT_EXPORT(void, terrainShadowView)(JNIEnv *env, jclass, jlong view, jdouble x, jdouble y, jdouble z) {
+    jvm::handled(env, [&] {
+        op::TerrainShadowView command{};
+        std::memcpy(command.modelView, pointer<const float>(view), sizeof(command.modelView));
+        std::memcpy(command.projection, pointer<const float>(view) + 16, sizeof(command.projection));
+        std::memcpy(&command.culling, pointer<const u8>(view) + 128, sizeof(command.culling));
+        command.culling.planeCount = std::min<u32>(command.culling.planeCount, 13);
+        command.camera[0] = x;
+        command.camera[1] = y;
+        command.camera[2] = z;
+        Renderer::get().command(op::TERRAIN_SHADOW_VIEW, command);
+    });
+}
+
+AT_EXPORT(void, terrainShadowViewEnd)(JNIEnv *env, jclass) {
+    jvm::handled(env, [&] { Renderer::get().command(op::TERRAIN_SHADOW_VIEW_END, op::Flag{0, 0}); });
 }
 
 AT_EXPORT(jstring, terrainDebug)(JNIEnv *env
