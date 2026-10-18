@@ -2,7 +2,6 @@ package yt.ren.astatine.shaderpack;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.renderpearl.api.commands.RenderPass;
-import com.mojang.renderpearl.backend.vulkan.VulkanDevice;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import net.irisshaders.iris.Iris;
 import net.irisshaders.iris.gui.option.IrisVideoSettings;
@@ -29,7 +28,8 @@ import org.joml.Matrix4f;
 import yt.ren.astatine.Native;
 import yt.ren.astatine.memory.Memory;
 import yt.ren.astatine.render.GLState;
-import yt.ren.astatine.vulkan.MainTarget;
+import yt.ren.astatine.backend.MainTarget;
+import yt.ren.astatine.iris.IrisPlatform;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -62,6 +62,7 @@ public class Shaderpacks {
 
 	public static void load() {
 		if (!initialized) {
+			IrisPlatform.set(new ShaderpackPlatform());
 			Iris.onEarlyInitialize();
 			Iris.initializeRenderBackend();
 			initialized = true;
@@ -448,11 +449,10 @@ public class Shaderpacks {
 
 		if (pipeline != null) {
 			pipeline.setPhase(WorldRenderingPhase.NONE);
-			var command = VulkanDevice.get().createCommandEncoder().commandBuffer();
-			MainTarget.beginAccess(command);
+			MainTarget.beginAccess();
 			pipeline.finalizeLevelRendering();
 			pipeline.finalizeGameRendering();
-			MainTarget.endAccess(VulkanDevice.get().createCommandEncoder().commandBuffer());
+			MainTarget.endAccess();
 		}
 
 		DrawIds.reset();

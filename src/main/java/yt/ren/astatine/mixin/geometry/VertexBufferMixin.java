@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import yt.ren.astatine.Native;
-import yt.ren.astatine.vulkan.WorldDraws;
+import yt.ren.astatine.shaderpack.WorldDraws;
 import yt.ren.astatine.extension.MeshHolder;
 import yt.ren.astatine.memory.Memory;
 import yt.ren.astatine.render.GL;

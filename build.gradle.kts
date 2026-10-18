@@ -70,19 +70,47 @@ dependencies {
     implementation("org.joml:joml:1.10.8")
     include("org.joml:joml:1.10.8")
 
-    for (module in listOf("lwjgl-vulkan", "lwjgl-vma", "lwjgl-shaderc")) {
-        implementation("org.lwjgl:$module:$lwjglVersion") { isTransitive = false }
-        include("org.lwjgl:$module:$lwjglVersion")
+}
+
+val renderpearl: SourceSet by sourceSets.creating
+val core: SourceSet by sourceSets.creating
+val iris: SourceSet by sourceSets.creating
+val layers = listOf(renderpearl, core, iris)
+
+for (layer in layers) {
+    configurations.named(layer.compileClasspathConfigurationName) { extendsFrom(configurations.compileClasspath.get()) }
+    configurations.named(layer.runtimeClasspathConfigurationName) { extendsFrom(configurations.runtimeClasspath.get()) }
+}
+
+sourceSets {
+    core.compileClasspath += renderpearl.output
+    iris.compileClasspath += renderpearl.output + core.output
+    main {
+        compileClasspath += renderpearl.output + core.output + iris.output
+        runtimeClasspath += renderpearl.output + core.output + iris.output
     }
-    for (module in listOf("lwjgl-vma", "lwjgl-shaderc")) {
-        for (platform in listOf("windows", "windows-arm64", "linux", "macos", "macos-arm64")) {
-            runtimeOnly("org.lwjgl:$module:$lwjglVersion:natives-$platform") { isTransitive = false }
-            include("org.lwjgl:$module:$lwjglVersion:natives-$platform")
+}
+
+loom {
+    mods {
+        create("astatine") {
+            sourceSet(sourceSets.main.get())
+            for (layer in layers) {
+                sourceSet(layer)
+            }
         }
     }
-    for (platform in listOf("macos", "macos-arm64")) {
-        runtimeOnly("org.lwjgl:lwjgl-vulkan:$lwjglVersion:natives-$platform") { isTransitive = false }
-        include("org.lwjgl:lwjgl-vulkan:$lwjglVersion:natives-$platform")
+}
+
+tasks.jar {
+    for (layer in layers) {
+        from(layer.output)
+    }
+}
+
+tasks.withType<Jar>().matching { it.name == "sourcesJar" }.configureEach {
+    for (layer in layers) {
+        from(layer.allSource)
     }
 }
 

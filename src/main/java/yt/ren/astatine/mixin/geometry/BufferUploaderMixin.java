@@ -4,7 +4,7 @@ import net.minecraft.client.render.vertex.BufferBuilder;
 import net.minecraft.client.render.vertex.BufferUploader;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
-import yt.ren.astatine.vulkan.WorldDraws;
+import yt.ren.astatine.shaderpack.WorldDraws;
 import yt.ren.astatine.memory.Memory;
 import yt.ren.astatine.render.geometry.VertexLayouts;
 

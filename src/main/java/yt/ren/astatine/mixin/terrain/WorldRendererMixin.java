@@ -33,7 +33,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import yt.ren.astatine.Native;
-import yt.ren.astatine.vulkan.WorldDraws;
+import yt.ren.astatine.shaderpack.WorldDraws;
 import yt.ren.astatine.memory.Memory;
 import yt.ren.astatine.shaderpack.Shaderpacks;
 import yt.ren.astatine.terrain.TerrainRenderer;

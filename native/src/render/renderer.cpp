@@ -7,6 +7,7 @@
 #include "render/pipelines.h"
 #include "render/targets.h"
 #include "render/texture.h"
+#include "backend/backend.h"
 #include "terrain/terrain.h"
 #include "vulkan/descriptors.h"
 #include "vulkan/device.h"
@@ -153,6 +154,8 @@ namespace at {
         } catch (const std::exception &error) {
             log::warn("Unable to save the pipeline cache: %s", error.what());
         }
+        for (auto &resources: frames) resources->await();
+        backend::Backend::shutdown();
         for (auto &resources: frames) resources->await();
         terrain.reset();
         fallback.reset();

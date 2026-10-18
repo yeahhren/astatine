@@ -15,6 +15,7 @@
     X(vkGetPhysicalDeviceMemoryProperties) \
     X(vkGetPhysicalDeviceQueueFamilyProperties) \
     X(vkGetPhysicalDeviceFormatProperties) \
+    X(vkGetPhysicalDeviceImageFormatProperties) \
     X(vkEnumerateDeviceExtensionProperties) \
     X(vkCreateDevice) \
     X(vkGetDeviceProcAddr) \
@@ -100,6 +101,7 @@
     X(vkCmdBindVertexBuffers) \
     X(vkCmdDraw) \
     X(vkCmdDrawIndexed) \
+    X(vkCmdDrawIndirect) \
     X(vkCmdDrawIndexedIndirect) \
     X(vkCmdCopyBuffer) \
     X(vkCmdCopyImage) \
@@ -123,12 +125,20 @@
     X(vkAcquireNextImageKHR) \
     X(vkQueuePresentKHR)
 
+#define AT_VK_OPTIONAL_DEVICE_FUNCTIONS(X) \
+    X(vkCmdPushDescriptorSetKHR) \
+    X(vkCmdDrawMultiEXT) \
+    X(vkCmdDrawMultiIndexedEXT) \
+    X(vkGetDescriptorSetLayoutSupportKHR) \
+    X(vkSetDebugUtilsObjectNameEXT)
+
 namespace at::vk {
 #define AT_VK_DECLARE(name) extern PFN_##name name;
     AT_VK_GLOBAL_FUNCTIONS(AT_VK_DECLARE)
     AT_VK_INSTANCE_FUNCTIONS(AT_VK_DECLARE)
     AT_VK_OPTIONAL_INSTANCE_FUNCTIONS(AT_VK_DECLARE)
     AT_VK_DEVICE_FUNCTIONS(AT_VK_DECLARE)
+    AT_VK_OPTIONAL_DEVICE_FUNCTIONS(AT_VK_DECLARE)
 #undef AT_VK_DECLARE
 
     void loadGlobal(PFN_vkGetInstanceProcAddr getInstanceProcAddr);
