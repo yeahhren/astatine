@@ -11,7 +11,7 @@ import yt.ren.astatine.render.TextureBinding;
 
 @Mixin(HttpTexture.class)
 public abstract class HttpTextureMixin {
-	@Redirect(method = "getGlId", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/texture/TextureUtil;uploadTexture(ILjava/awt/image/BufferedImage;)I"))
+	@Redirect(method = "upload", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/texture/TextureUtil;uploadTexture(ILjava/awt/image/BufferedImage;)I"))
 	private int astatine$upload(int name, BufferedImage image) {
 		TextureBinding.bind(((TextureHolder) this).astatine$texture());
 		return TextureUtil.uploadTexture(TextureBinding.OBJECT, image);

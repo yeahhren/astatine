@@ -361,10 +361,13 @@ namespace at::terrain {
     }
 
     bool Terrain::frustumVisible(const Section &section, double originX, double originY, double originZ) const {
+        constexpr float OUTSIDE_WORLD = 1.0e7f;
         auto minX = static_cast<float>(section.x * 16 - originX);
         auto minY = static_cast<float>(section.y * 16 - originY);
         auto minZ = static_cast<float>(section.z * 16 - originZ);
         float maxX = minX + 16.0f, maxY = minY + 16.0f, maxZ = minZ + 16.0f;
+        if (section.y == 0) minY = -OUTSIDE_WORLD;
+        if (section.y == 15) maxY = OUTSIDE_WORLD;
         for (const auto &plane: planes) {
             float x = plane[0] > 0 ? maxX : minX;
             float y = plane[1] > 0 ? maxY : minY;

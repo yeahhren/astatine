@@ -3,6 +3,7 @@
   "minVersion": "0.8",
   "package": "yt.ren.astatine.mixin",
   "compatibilityLevel": "JAVA_25",
+  "plugin": "yt.ren.astatine.compat.AstatineMixinPlugin",
   "client": [
     "client.CameraMixin",
     "client.ClientPlayerInteractionManagerMixin",

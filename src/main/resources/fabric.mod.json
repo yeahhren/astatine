@@ -17,5 +17,11 @@
     "pylon": ">=0.2.2",
     "minecraft": "1.8.9",
     "java": ">=25"
+  },
+  "custom": {
+    "sarcio:disable": [
+      "mem.alloc.render.TextRendererMixin",
+      "bugfix.render.WorldRendererMixin"
+    ]
   }
 }
