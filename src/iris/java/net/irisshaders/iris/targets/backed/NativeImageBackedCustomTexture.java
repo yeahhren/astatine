@@ -7,7 +7,7 @@ import net.irisshaders.iris.gl.sampler.GlSampler;
 import net.irisshaders.iris.gl.texture.TextureAccess;
 import net.irisshaders.iris.gl.texture.TextureType;
 import net.irisshaders.iris.shaderpack.texture.CustomTextureData;
-import net.minecraft.client.renderer.texture.DynamicTexture;
+import yt.ren.astatine.iris.textures.DynamicTexture;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;

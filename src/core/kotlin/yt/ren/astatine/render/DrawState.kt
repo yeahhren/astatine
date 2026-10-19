@@ -10,6 +10,7 @@ object DrawState {
     const val LIGHTING = 0x0B50
     const val POLYGON_OFFSET_FILL = 0x8037
     const val COLOR_LOGIC_OP = 0x0BF2
+    private const val FLAT = 0x1D00
     private const val UNITS = 8
 
     private class Values {
@@ -21,6 +22,7 @@ object DrawState {
         var lighting = false
         var polygonOffset = false
         var logicOp = false
+        var flatShading = false
         val textures = BooleanArray(UNITS)
         var alphaFunction = 0x0207
         var alphaReference = 0f
@@ -46,6 +48,7 @@ object DrawState {
             copy.lighting = lighting
             copy.polygonOffset = polygonOffset
             copy.logicOp = logicOp
+            copy.flatShading = flatShading
             System.arraycopy(textures, 0, copy.textures, 0, UNITS)
             copy.alphaFunction = alphaFunction
             copy.alphaReference = alphaReference
@@ -138,6 +141,11 @@ object DrawState {
         changed()
     }
 
+    fun shadeModel(mode: Int) {
+        values.flatShading = mode == FLAT
+        changed()
+    }
+
     fun activeTexture(value: Int) {
         unit = value and (UNITS - 1)
     }
@@ -161,6 +169,7 @@ object DrawState {
         values.lighting = previous.lighting
         values.polygonOffset = previous.polygonOffset
         values.logicOp = previous.logicOp
+        values.flatShading = previous.flatShading
         System.arraycopy(previous.textures, 0, values.textures, 0, UNITS)
         changed()
     }
@@ -188,6 +197,9 @@ object DrawState {
 
     @JvmStatic
     fun logicOpEnabled() = values.logicOp
+
+    @JvmStatic
+    fun flatShading() = values.flatShading
 
     @JvmStatic
     fun logicMode() = values.logicMode

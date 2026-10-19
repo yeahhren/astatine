@@ -6,7 +6,7 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import net.irisshaders.iris.gl.sampler.GlSampler;
 import net.irisshaders.iris.gl.texture.TextureAccess;
 import net.irisshaders.iris.gl.texture.TextureType;
-import net.minecraft.client.renderer.texture.DynamicTexture;
+import yt.ren.astatine.iris.textures.DynamicTexture;
 
 import java.util.Objects;
 import java.util.Random;

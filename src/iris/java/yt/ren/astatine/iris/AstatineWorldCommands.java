@@ -158,6 +158,7 @@ public class AstatineWorldCommands extends ForwardingRenderPass implements World
 		}
 	}
 
+	// todo: MDIC
 	@Override
 	public void multiDrawIndexed(PointerBuffer offsets, IntBuffer counts, IntBuffer bases, int count) {
 		for (int i = 0; i < count; i++) {

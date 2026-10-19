@@ -1,11 +1,11 @@
 Astatine includes code from the following projects.
 
 Iris (https://github.com/IrisShaders/Iris)
-  Files: src/main/java/net/irisshaders/**, src/main/java/kroppeb/**, src/main/resources/assets/iris/**
+  Files: src/iris/java/net/irisshaders/**, src/vendored/java/kroppeb/**, src/iris/resources/assets/iris/**
   License: GNU Lesser General Public License v3.0, see third_party_licenses/LGPL.txt
 
 Ithaka Digraph (Odysseus Software GmbH)
-  Files: src/main/java/de/odysseus/**
+  Files: src/vendored/de/odysseus/**
   License: Apache License 2.0, see third_party_licenses/Apache-2.0.txt
 
 Astatine bundles the following libraries in its jar.

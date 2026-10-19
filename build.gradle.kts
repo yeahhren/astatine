@@ -73,46 +73,22 @@ dependencies {
 
 }
 
-val renderpearl: SourceSet by sourceSets.creating
-val core: SourceSet by sourceSets.creating
-val iris: SourceSet by sourceSets.creating
-val layers = listOf(renderpearl, core, iris)
-
-for (layer in layers) {
-    configurations.named(layer.compileClasspathConfigurationName) { extendsFrom(configurations.compileClasspath.get()) }
-    configurations.named(layer.runtimeClasspathConfigurationName) { extendsFrom(configurations.runtimeClasspath.get()) }
-}
-
 sourceSets {
-    core.compileClasspath += renderpearl.output
-    iris.compileClasspath += renderpearl.output + core.output
     main {
-        compileClasspath += renderpearl.output + core.output + iris.output
-        runtimeClasspath += renderpearl.output + core.output + iris.output
-    }
-}
-
-loom {
-    mods {
-        create("astatine") {
-            sourceSet(sourceSets.main.get())
-            for (layer in layers) {
-                sourceSet(layer)
-            }
+        java {
+            srcDir("src/renderpearl/java")
+            srcDir("src/vendored/java")
+            srcDir("src/core/java")
+            srcDir("src/iris/java")
+        }
+        resources {
+            srcDir("src/iris/resources")
+        }
+        kotlin {
+            srcDir("src/core/kotlin")
         }
     }
-}
 
-tasks.jar {
-    for (layer in layers) {
-        from(layer.output)
-    }
-}
-
-tasks.withType<Jar>().matching { it.name == "sourcesJar" }.configureEach {
-    for (layer in layers) {
-        from(layer.allSource)
-    }
 }
 
 kotlin {

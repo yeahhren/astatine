@@ -21,7 +21,7 @@ import net.irisshaders.iris.shadows.ShadowRenderTargets;
 import net.irisshaders.iris.targets.CustomImage;
 import net.irisshaders.iris.targets.RenderTarget;
 import net.irisshaders.iris.targets.RenderTargets;
-import net.minecraft.client.renderer.texture.AbstractTexture;
+import yt.ren.astatine.iris.textures.AbstractTexture;
 
 import java.util.List;
 import java.util.OptionalDouble;

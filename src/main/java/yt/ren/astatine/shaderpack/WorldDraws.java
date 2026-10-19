@@ -226,12 +226,14 @@ public final class WorldDraws {
 	}
 
 	private static PrimitiveTopology topology(int mode) {
+		boolean flat = DrawState.flatShading();
+
 		return switch (mode) {
 			case GL11.GL_POINTS -> PrimitiveTopology.POINTS;
 			case GL11.GL_LINES -> PrimitiveTopology.DEBUG_LINES;
-			case GL11.GL_LINE_STRIP, GL11.GL_LINE_LOOP -> PrimitiveTopology.DEBUG_LINE_STRIP;
-			case GL11.GL_TRIANGLE_STRIP -> PrimitiveTopology.TRIANGLE_STRIP;
-			case GL11.GL_TRIANGLE_FAN -> PrimitiveTopology.TRIANGLE_FAN;
+			case GL11.GL_LINE_STRIP, GL11.GL_LINE_LOOP -> flat ? PrimitiveTopology.DEBUG_LINES : PrimitiveTopology.DEBUG_LINE_STRIP;
+			case GL11.GL_TRIANGLE_STRIP, GL11.GL_QUAD_STRIP -> flat ? PrimitiveTopology.TRIANGLES : PrimitiveTopology.TRIANGLE_STRIP;
+			case GL11.GL_TRIANGLE_FAN, GL11.GL_POLYGON -> flat ? PrimitiveTopology.TRIANGLES : PrimitiveTopology.TRIANGLE_FAN;
 			case GL11.GL_QUADS -> PrimitiveTopology.QUADS;
 			default -> PrimitiveTopology.TRIANGLES;
 		};

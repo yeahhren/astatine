@@ -35,13 +35,9 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.lwjgl.opengl.GL12.*;
+
 public class PbrTextures {
-	private static final int GL_TEXTURE_MAG_FILTER = 0x2800;
-	private static final int GL_TEXTURE_MIN_FILTER = 0x2801;
-	private static final int GL_TEXTURE_MAX_LEVEL = 0x813D;
-	private static final int GL_NEAREST = 0x2600;
-	private static final int GL_NEAREST_MIPMAP_NEAREST = 0x2700;
-	private static final int GL_NEAREST_MIPMAP_LINEAR = 0x2702;
 	private static final int UPLOAD_TEXELS = 1 << 20;
 	private static final CustomMipmapGenerator LINEAR_MIPMAP_GENERATOR = new ChannelMipmapGenerator(LinearBlendFunction.INSTANCE,
 		LinearBlendFunction.INSTANCE, LinearBlendFunction.INSTANCE, LinearBlendFunction.INSTANCE);

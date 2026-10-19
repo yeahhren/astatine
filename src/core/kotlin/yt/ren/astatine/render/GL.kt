@@ -240,7 +240,10 @@ object GL {
     }
 
     @JvmStatic
-    fun shadeModel(mode: Int) = op(SHADE_MODEL, mode)
+    fun shadeModel(mode: Int) {
+        DrawState.shadeModel(mode)
+        op(SHADE_MODEL, mode)
+    }
 
     @JvmStatic
     fun viewport(x: Int, y: Int, width: Int, height: Int) {

@@ -82,6 +82,13 @@ public abstract class SkyMixin {
 		buffer.draw(mode);
 	}
 
+	@Redirect(method = "renderSky", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/platform/GlStateManager;callList(I)V", ordinal = 3))
+	private void astatine$skipHorizonVoidPlane(int list) {
+		if (!Shaderpacks.isWorldActive()) {
+			GlStateManager.callList(list);
+		}
+	}
+
 	@Inject(method = "renderSky", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/render/platform/GlStateManager;rotatef(FFFF)V", ordinal = 3, shift = At.Shift.AFTER))
 	private void astatine$tiltSunPath(float tickDelta, int anaglyphRenderPass, CallbackInfo callback) {
 		float rotation = Shaderpacks.sunPathRotation();

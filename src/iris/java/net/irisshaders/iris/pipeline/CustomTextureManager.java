@@ -14,7 +14,7 @@ import net.irisshaders.iris.shaderpack.texture.TextureStage;
 import net.irisshaders.iris.targets.backed.NativeImageBackedCustomTexture;
 import net.irisshaders.iris.targets.backed.NativeImageBackedNoiseTexture;
 import net.irisshaders.iris.targets.backed.RawTexture;
-import net.minecraft.client.renderer.texture.AbstractTexture;
+import yt.ren.astatine.iris.textures.AbstractTexture;
 import net.minecraft.client.render.texture.Texture;
 import net.minecraft.resource.Identifier;
 import org.apache.commons.io.FilenameUtils;

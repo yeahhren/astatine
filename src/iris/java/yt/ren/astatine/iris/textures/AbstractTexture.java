@@ -1,4 +1,4 @@
-package net.minecraft.client.renderer.texture;
+package yt.ren.astatine.iris.textures;
 
 import com.mojang.renderpearl.api.textures.GpuSampler;
 import com.mojang.renderpearl.api.textures.GpuTexture;

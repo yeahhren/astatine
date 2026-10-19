@@ -1,4 +1,4 @@
-package net.minecraft.client.renderer.texture;
+package yt.ren.astatine.iris.textures;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.RenderSystem;
