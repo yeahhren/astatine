@@ -25,6 +25,8 @@ jobs:
             os: windows-2025
           - platform: linux-x64
             os: ubuntu-22.04
+          - platform: macos-x64
+            os: macos-15-intel
           - platform: macos-arm64
             os: macos-15
     env:
@@ -126,6 +128,16 @@ jobs:
           merge-multiple: true
 
       - run: ./gradlew build --build-cache -PprebuiltNatives="$PWD/build/ci-natives"
+
+      - name: Verify natives
+        run: |
+          jar=$(ls build/libs/*.jar | grep -v -- -sources.jar)
+          contents=$(unzip -Z1 "$jar")
+          for native in windows-x64/astatine.dll linux-x64/libastatine.so \
+                        macos-x64/libastatine.dylib macos-arm64/libastatine.dylib; do
+            grep -qx "natives/$native" <<< "$contents" || { echo "::error::$jar is missing natives/$native"; exit 1; }
+          done
+          { echo '```'; unzip -lv "$jar" 'natives/*'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v7
         with:
