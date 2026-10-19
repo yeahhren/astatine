@@ -25,12 +25,10 @@ import com.mojang.renderpearl.frontend.FrontendRenderPass;
 import com.mojang.renderpearl.frontend.FrontendRenderPipeline;
 import com.mojang.renderpearl.util.TextureViewAndSampler;
 import net.irisshaders.iris.Iris;
-import net.irisshaders.iris.gl.state.FogMode;
 import net.irisshaders.iris.pipeline.IrisPipelines;
 import net.irisshaders.iris.pipeline.IrisRenderPipeline;
 import net.irisshaders.iris.pipeline.IrisRenderingPipeline;
 import net.irisshaders.iris.pipeline.WorldRenderPass;
-import net.irisshaders.iris.pipeline.WorldRenderingPhase;
 import net.irisshaders.iris.pipeline.programs.ExtendedShader;
 import net.irisshaders.iris.shadows.ShadowRenderingState;
 import net.irisshaders.iris.uniforms.CameraUniforms;
@@ -389,9 +387,8 @@ public final class WorldDraws {
 		RESOURCES.put("Draws", records);
 		RESOURCES.put("Sections", sections);
 		RESOURCES.put("Globals", globals());
-		boolean fogDisabled = ShadowRenderingState.areShadowsCurrentlyBeingRendered() || iris.getPhase().ordinal() >= WorldRenderingPhase.SKY.ordinal()
-			&& iris.getPhase().ordinal() <= WorldRenderingPhase.VOID.ordinal();
-		Native.irisDrawState(iris.getPhase().ordinal(), (key.getFogMode() == FogMode.OFF ? 1 : 0) | (fogDisabled ? 2 : 0));
+		boolean fogDisabled = ShadowRenderingState.areShadowsCurrentlyBeingRendered();
+		Native.irisDrawState(iris.getPhase().ordinal(), fogDisabled ? 2 : 0);
 		world.setUniforms(RESOURCES);
 		world.setPipeline(override);
 		world.prepareDraw();

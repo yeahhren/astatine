@@ -1,7 +1,6 @@
 package net.irisshaders.iris.pipeline.programs;
 
 import com.google.common.collect.ImmutableSet;
-import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.renderpearl.api.vertex.VertexFormat;
 import net.irisshaders.iris.gl.blending.AlphaTest;
 import net.irisshaders.iris.gl.blending.BlendModeOverride;
@@ -69,22 +68,8 @@ public class ShaderCreator {
 			return createSodiumFallback(name, shaderKey, alpha, blendModeOverride, parent, false);
 		}
 
-		ShaderAttributeInputs inputs = new ShaderAttributeInputs(vertexFormat, isFullbright, false, isGlint, isText, false);
-
-		if (vertexFormat == null) {
-
-			vertexFormat = IrisVertexFormats.TERRAIN;
-		}
-
-		boolean isLeash = vertexFormat == DefaultVertexFormat.POSITION_COLOR_LIGHTMAP;
-		String vertex = ShaderSynthesizer.vsh(true, inputs, fogMode, entityLighting, isLeash);
-		String fragment = ShaderSynthesizer.fsh(inputs, fogMode, alpha, intensityTex, isLeash);
-
-
-		var shaderVertexFormat = vertexFormat;
-		return new ShaderSupplier(shaderKey,
-			() -> new ExtendedShader(parent, name, Map.of(PatchShaderType.VERTEX, vertex, PatchShaderType.FRAGMENT, fragment), null,
-				new int[]{0}, blendModeOverride, alpha, inputs, shaderVertexFormat, shaderKey));
+		return createLegacyFallback(name, shaderKey, alpha, vertexFormat, blendModeOverride, parent, isGlint, isText, intensityTex,
+			isFullbright, false);
 	}
 
 	public static ShaderSupplier createFallbackShadow(String name, ShaderKey shaderKey, Supplier<ShadowRenderTargets> shadowSupplier,
@@ -94,22 +79,30 @@ public class ShaderCreator {
 			return createSodiumFallback(name, shaderKey, alpha, blendModeOverride, parent, true);
 		}
 
+		return createLegacyFallback(name, shaderKey, alpha, vertexFormat, blendModeOverride, parent, isGlint, isText, intensityTex,
+			isFullbright, true);
+	}
+
+	private static ShaderSupplier createLegacyFallback(String name, ShaderKey shaderKey, AlphaTest alpha, VertexFormat vertexFormat,
+		BlendModeOverride blendModeOverride, IrisRenderingPipeline parent, boolean isGlint, boolean isText, boolean intensityTex,
+		boolean isFullbright, boolean shadow) {
 		ShaderAttributeInputs inputs = new ShaderAttributeInputs(vertexFormat, isFullbright, false, isGlint, isText, false);
 
 		if (vertexFormat == null) {
-
 			vertexFormat = IrisVertexFormats.TERRAIN;
 		}
 
-		boolean isLeash = vertexFormat == DefaultVertexFormat.POSITION_COLOR_LIGHTMAP;
-		String vertex = ShaderSynthesizer.vsh(true, inputs, fogMode, entityLighting, isLeash);
-		String fragment = ShaderSynthesizer.fsh(inputs, fogMode, alpha, intensityTex, isLeash);
-
+		Map<PatchShaderType, String> patched = TransformPatcher.patchVanilla(name, ShaderSynthesizer.vsh(), null, null, null,
+			ShaderSynthesizer.fsh(intensityTex), alpha, inputs.isNewLines(), shaderKey == ShaderKey.CLOUDS, true, inputs,
+			parent.getTextureMap(), parent.getTextureOverrides(TextureStage.GBUFFERS_AND_SHADOW));
+		Map<PatchShaderType, String> transformed = Map.of(PatchShaderType.VERTEX,
+			patched.get(PatchShaderType.VERTEX) + ShaderSynthesizer.vshHelpers(inputs), PatchShaderType.FRAGMENT,
+			patched.get(PatchShaderType.FRAGMENT) + ShaderSynthesizer.fshHelpers(shadow));
 
 		var shaderVertexFormat = vertexFormat;
 		return new ShaderSupplier(shaderKey,
-			() -> new ExtendedShader(parent, name, Map.of(PatchShaderType.VERTEX, vertex, PatchShaderType.FRAGMENT, fragment), null,
-				new int[]{0}, blendModeOverride, alpha, inputs, shaderVertexFormat, shaderKey));
+			() -> new ExtendedShader(parent, name, transformed, null, new int[]{0}, blendModeOverride, alpha, inputs, shaderVertexFormat,
+				shaderKey));
 	}
 
 	private static ShaderSupplier createSodiumFallback(String name, ShaderKey shaderKey, AlphaTest alpha,
@@ -154,7 +147,7 @@ public class ShaderCreator {
 		var shaderVertexFormat = vertexFormat;
 		return new ShaderSupplier(shaderKey, () -> {
 			int[] drawBuffers = shadowSupplier.get()
-				.getDrawBuffers(source.getDirectives().hasUnknownDrawBuffers() ? new int[]{0, 1} : source.getDirectives().getDrawBuffers());
+				.getDrawBuffers(source.getDirectives().getDrawBuffers());
 			return new ExtendedShader(parent, name, transformed, source.getDirectives().withOverriddenDrawBuffers(drawBuffers), drawBuffers,
 				blendModeOverride, alpha, inputs, shaderVertexFormat, shaderKey);
 		});

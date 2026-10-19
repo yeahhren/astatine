@@ -21,9 +21,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 public class ProgramDirectives {
 	private static final ImmutableList<String> LEGACY_RENDER_TARGETS = PackRenderTargetDirectives.LEGACY_RENDER_TARGETS;
+
+	private static final Pattern FRAG_DATA = Pattern.compile("gl_FragData\\s*\\[\\s*(\\d+)\\s*\\]");
 
 	private final int[] drawBuffers;
 	private final ViewportData viewportScale;
@@ -73,7 +76,7 @@ public class ProgramDirectives {
 			}
 		}).orElseGet(() -> {
 			unknownDrawBuffers = true;
-			return new int[]{0};
+			return inferDrawBuffers(source.getFragmentSource(), supportedRenderTargets);
 		});
 
 		if (properties != null) {
@@ -120,6 +123,29 @@ public class ProgramDirectives {
 		});
 
 		this.mipmappedBuffers = ImmutableSet.copyOf(mipmappedBuffers);
+	}
+
+	private static int[] inferDrawBuffers(Optional<String> fragmentSource, Set<Integer> supportedRenderTargets) {
+		int[] written = fragmentSource.map(source -> FRAG_DATA.matcher(source).results()
+			.mapToInt(match -> Integer.parseInt(match.group(1)))
+			.filter(supportedRenderTargets::contains)
+			.distinct()
+			.sorted()
+			.toArray()).orElse(new int[0]);
+
+		return written.length == 0 ? new int[]{0} : written;
+	}
+
+	public static String remapInferredFragData(String fragmentSource, int[] drawBuffers) {
+		return FRAG_DATA.matcher(fragmentSource).replaceAll(match -> {
+			int index = Integer.parseInt(match.group(1));
+			for (int slot = 0; slot < drawBuffers.length; slot++) {
+				if (drawBuffers[slot] == index) {
+					return "gl_FragData[" + slot + "]";
+				}
+			}
+			return match.group();
+		});
 	}
 
 	private static Optional<CommentDirective> findDrawbuffersDirective(Optional<String> stageSource) {

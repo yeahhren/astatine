@@ -40,7 +40,7 @@ public final class DrawDataTransformer {
 		Map.entry("fogDensity", "(" + ENVIRONMENT + ".flags.z == 0 ? 0.0 : max(" + ENVIRONMENT + ".fogParams.z, 0.0))"),
 		Map.entry("fogStart", ENVIRONMENT + ".fogParams.x"),
 		Map.entry("fogEnd", ENVIRONMENT + ".fogParams.y"),
-		Map.entry("fogMode", "((" + ENVIRONMENT + ".flags.x & 128) == 0 || (" + DRAW + ".textures.z & 1073741824) != 0 ? 0 : " + ENVIRONMENT + ".flags.z == 0 ? 9729 : 2049)"),
+		Map.entry("fogMode", "((" + ENVIRONMENT + ".flags.x & 128) == 0 || (" + DRAW + ".textures.z & 1073741824) != 0 ? 0 : " + ENVIRONMENT + ".flags.z == 0 ? 9729 : " + ENVIRONMENT + ".flags.z == 1 ? 2048 : 2049)"),
 		Map.entry("fogShape", "((" + ENVIRONMENT + ".flags.x & 128) == 0 || (" + DRAW + ".textures.z & 1073741824) != 0 ? -1 : 1)"));
 
 	private DrawDataTransformer() {

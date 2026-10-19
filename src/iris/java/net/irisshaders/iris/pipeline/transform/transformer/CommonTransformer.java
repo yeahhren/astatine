@@ -146,7 +146,7 @@ public class CommonTransformer {
 			// figure out its type, then replace all occurrences of gl_MultiTexCoord3 with
 			// the correct conversion from mc_midTexCoord's declared type to vec4.
 			root.rename("gl_MultiTexCoord3", "mc_midTexCoord");
-			tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "attribute vec4 mc_midTexCoord;");
+			tree.parseAndInjectNode(t, ASTInjectionPoint.BEFORE_DECLARATIONS, "in vec4 mc_midTexCoord;");
 		}
 	}
 

@@ -13,7 +13,7 @@ public class ProgramSource {
 	private final String geometrySource;
 	private final String tessControlSource;
 	private final String tessEvalSource;
-	private final String fragmentSource;
+	private String fragmentSource;
 	private final ProgramDirectives directives;
 	private final ProgramSet parent;
 
@@ -40,6 +40,10 @@ public class ProgramSource {
 		this.parent = parent;
 		this.directives = new ProgramDirectives(this, properties, PackRenderTargetDirectives.BASELINE_SUPPORTED_RENDER_TARGETS,
 			defaultBlendModeOverride);
+
+		if (fragmentSource != null && this.directives.hasUnknownDrawBuffers()) {
+			this.fragmentSource = ProgramDirectives.remapInferredFragData(fragmentSource, this.directives.getDrawBuffers());
+		}
 	}
 
 	public ProgramSource withDirectiveOverride(ProgramDirectives overrideDirectives) {

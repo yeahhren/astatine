@@ -103,8 +103,7 @@ public class ShadowCompositeRenderer {
 			} else {
 				pass.computes = new ComputeProgram[0];
 			}
-			int[] drawBuffers = renderTargets.getDrawBuffers(
-				directives.hasUnknownDrawBuffers() ? new int[]{0, 1} : directives.getDrawBuffers());
+			int[] drawBuffers = renderTargets.getDrawBuffers(directives.getDrawBuffers());
 
 			var writesAlt = new HashSet<Integer>();
 

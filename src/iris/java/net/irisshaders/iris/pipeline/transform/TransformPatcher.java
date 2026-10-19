@@ -121,7 +121,11 @@ public class TransformPatcher {
 				}
 				transformer.getLexer().version = Version.fromNumber(Integer.parseInt(matcher.group(1)));
 
-				return super.parseTranslationUnit(rootInstance, input);
+				try {
+					return super.parseTranslationUnit(rootInstance, input);
+				} finally {
+					transformer.getLexer().version = Version.GLSL46;
+				}
 			}
 		};
 		transformer.setTransformation((trees, parameters) -> {

@@ -369,6 +369,11 @@ public class Iris {
 
 		if (pack.toString().endsWith(".zip")) {
 			try (FileSystem zipSystem = FileSystems.newFileSystem(pack, Iris.class.getClassLoader())) {
+				// Matches loadExternalZipShaderpack, which also accepts a "shaders" entry the zip stored as a file.
+				if (Files.exists(zipSystem.getPath("shaders"))) {
+					return true;
+				}
+
 				Path root = zipSystem.getRootDirectories().iterator().next();
 				try (Stream<Path> stream = Files.walk(root)) {
 					return stream.filter(Files::isDirectory).anyMatch(path -> path.endsWith("shaders"));
