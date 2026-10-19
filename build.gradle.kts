@@ -147,14 +147,22 @@ val buildNative by tasks.registering(Exec::class) {
     })
 }
 
+val prebuiltNatives = providers.gradleProperty("prebuiltNatives")
+
 tasks.processResources {
     inputs.property("version", project.version)
     filesMatching("fabric.mod.json") {
         expand("version" to project.version)
     }
-    dependsOn(buildNative)
-    from(nativeOutputDir) {
-        into("natives")
+    if (prebuiltNatives.isPresent) {
+        from(prebuiltNatives) {
+            into("natives")
+        }
+    } else {
+        dependsOn(buildNative)
+        from(nativeOutputDir) {
+            into("natives")
+        }
     }
 }
 

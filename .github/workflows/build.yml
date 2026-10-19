@@ -1,0 +1,137 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VULKAN_SDK_VERSION: 1.4.363.0
+  JAVA_VERSION: 25
+
+jobs:
+  natives:
+    name: natives (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            os: windows-2025
+          - platform: linux-x64
+            os: ubuntu-22.04
+          - platform: macos-arm64
+            os: macos-15
+    env:
+      CMAKE_GENERATOR: Ninja
+      CMAKE_CXX_COMPILER_LAUNCHER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: ${{ env.VULKAN_SDK_VERSION }}
+          install_runtime: false
+          cache: true
+
+      - uses: mozilla-actions/sccache-action@v0.0.11
+
+      - if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - if: runner.os == 'Linux'
+        run: |
+          echo CXX=g++-12 >> "$GITHUB_ENV"
+          command -v ninja >/dev/null || { sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build; }
+
+      - if: runner.os == 'macOS'
+        run: brew list ninja >/dev/null 2>&1 || brew install ninja
+
+      - id: glslang
+        run: echo "tag=$(sed -n 's/^ *GIT_TAG *\([^ ]*\).*/\1/p' native/CMakeLists.txt | head -1)" >> "$GITHUB_OUTPUT"
+
+      - id: glslang-cache
+        uses: actions/cache@v6
+        with:
+          path: .deps/glslang
+          key: glslang-${{ steps.glslang.outputs.tag }}
+
+      - if: steps.glslang-cache.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "${{ steps.glslang.outputs.tag }}" https://github.com/KhronosGroup/glslang.git .deps/glslang
+
+      - name: Configure
+        run: |
+          path() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else echo "$1"; fi; }
+          cmake -S native -B build/native \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DASTATINE_JAVA_HOME="$(path "$JAVA_HOME")" \
+            -DASTATINE_OUTPUT_DIR="$(path "$PWD/build/natives")" \
+            -DFETCHCONTENT_SOURCE_DIR_GLSLANG="$(path "$PWD/.deps/glslang")"
+
+      - name: Build
+        run: cmake --build build/native --parallel
+
+      - name: Size
+        run: |
+          {
+            echo "### ${{ matrix.platform }}"
+            echo '```'
+            ls -l build/natives/*/
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          sccache --show-stats
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: natives-${{ matrix.platform }}
+          path: build/natives
+          retention-days: 7
+          compression-level: 9
+          if-no-files-found: error
+
+  jar:
+    needs: natives
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: natives-*
+          path: build/ci-natives
+          merge-multiple: true
+
+      - run: ./gradlew build --build-cache -PprebuiltNatives="$PWD/build/ci-natives"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: astatine
+          path: |
+            build/libs/*.jar
+            !build/libs/*-sources.jar
+          compression-level: 0
+          if-no-files-found: error
