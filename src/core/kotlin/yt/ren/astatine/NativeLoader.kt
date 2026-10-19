@@ -18,10 +18,9 @@ object NativeLoader {
         val resource = "/natives/$platform/$name"
         val bytes = NativeLoader::class.java.getResourceAsStream(resource)?.use { it.readBytes() }
             ?: throw UnsatisfiedLinkError("Astatine has no native renderer for $platform ($resource)")
-        val digest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }.take(16)
         val directory = FabricLoader.getInstance().gameDir.resolve("astatine").resolve("natives")
         Files.createDirectories(directory)
-        val target = directory.resolve("$digest-$name")
+        val target = directory.resolve(name)
         if (!Files.exists(target)) {
             val temporary = Files.createTempFile(directory, "astatine", ".tmp")
             Files.write(temporary, bytes)
