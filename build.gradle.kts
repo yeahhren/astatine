@@ -34,6 +34,7 @@ loom {
         named("client") {
             programArgs("--username", "Player", "--accessToken", "0")
             vmArgs(
+                "-XX:+UnlockExperimentalVMOptions",
                 "--enable-native-access=ALL-UNNAMED", "-XX:+UseZGC", "-XX:+UseCompactObjectHeaders",
                 "-Xms4G", "-Xmx4G", "-XX:+AlwaysPreTouch", "-XX:ConcGCThreads=2", // fixes microstutters for me -_-
             )
@@ -137,6 +138,7 @@ tasks.withType<JavaCompile>().configureEach {
 val nativeBuildDir = layout.buildDirectory.dir("native")
 val nativeOutputDir = layout.buildDirectory.dir("natives")
 val nativeBuildType = providers.gradleProperty("nativeBuildType").orElse("Release")
+val cmakeExecutable = providers.gradleProperty("cmake").orElse("cmake")
 val nativeJavaHome = javaToolchains.launcherFor(java.toolchain).map { it.metadata.installationPath.asFile.absolutePath }
 
 val configureNative by tasks.registering(Exec::class) {
@@ -144,7 +146,7 @@ val configureNative by tasks.registering(Exec::class) {
     inputs.file("native/CMakeLists.txt")
     inputs.property("buildType", nativeBuildType)
     outputs.file(nativeBuildDir.map { it.file("CMakeCache.txt") })
-    executable = "cmake"
+    executable = cmakeExecutable.get()
     argumentProviders.add(CommandLineArgumentProvider {
         listOf(
             "-S", file("native").absolutePath,
@@ -163,7 +165,7 @@ val buildNative by tasks.registering(Exec::class) {
     inputs.dir("native/shaders")
     inputs.dir("native/cmake")
     outputs.dir(nativeOutputDir)
-    executable = "cmake"
+    executable = cmakeExecutable.get()
     argumentProviders.add(CommandLineArgumentProvider {
         listOf("--build", nativeBuildDir.get().asFile.absolutePath, "--config", nativeBuildType.get(), "--parallel")
     })

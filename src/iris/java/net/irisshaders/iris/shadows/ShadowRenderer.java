@@ -452,6 +452,10 @@ public class ShadowRenderer {
 					.createRenderPass(() -> "Terrain", MainTarget.get().getColorTextureView(), Optional.empty(),
 						MainTarget.get().getDepthTextureView(), OptionalDouble.empty())) {
 					GL.enable(GL11.GL_BLEND);
+					Lighting.turnOff();
+					GlStateManager.color4f(1.0f, 1.0f, 1.0f, 1.0f);
+					client.gameRenderer.enableLightMap();
+					client.getTextureManager().bind(TextureAtlas.BLOCKS_LOCATION);
 					renderedShadowTerrain += IrisPlatform.get().drawShadowTerrain(BlockLayer.TRANSLUCENT);
 				}
 				if (this.shouldRenderDH) {
