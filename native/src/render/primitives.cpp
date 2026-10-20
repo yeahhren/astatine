@@ -4,7 +4,7 @@
 #include "render/state.h"
 
 namespace at {
-    bool PrimitivePlan::plan(i32 drawMode, u32 count, bool flatShading) {
+    bool PrimitivePlan::plan(i32 drawMode, u32 count, bool flatShading, bool triangleFans) {
         mode = drawMode;
         flat = flatShading;
         indexing = flat ? GENERATED : DIRECT;
@@ -43,7 +43,8 @@ namespace at {
             case gl::TRIANGLE_FAN:
             case gl::POLYGON:
                 vertexCount = count < 3 ? 0 : count;
-                topology = flat ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
+                if (!triangleFans) indexing = GENERATED;
+                topology = indexing == GENERATED ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
                 indexCount = vertexCount > 0 ? (vertexCount - 2) * 3 : 0;
                 break;
             case gl::QUADS:

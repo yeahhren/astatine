@@ -260,6 +260,8 @@ namespace at {
         if (attachments != 0) {
             std::memcpy(clearColorValue, state.clearColorValue, sizeof(clearColorValue));
             clearDepthValue = state.clearDepthValue;
+            // vkCmdClearAttachments is an internal draw on MoltenVK that clobbers the bindings we cache, so restart the pass
+            if (passActive && !contextValue->device->inPassClears) endPass();
             if (passActive) clearAttachments(attachments);
             else pendingClear |= attachments;
         }
@@ -357,7 +359,7 @@ namespace at {
 
     void Renderer::draw(u32 layoutId, i32 mode, const u8 *source, u32 count) {
         const VertexLayout &layout = layouts[layoutId];
-        if (!plan.plan(mode, count, state.flatShading)) return;
+        if (!plan.plan(mode, count, state.flatShading, contextValue->device->triangleFans)) return;
         if (!externalPass && plan.indexing == PrimitivePlan::QUADS && drawBatched(layout, source)) return;
         u32 vertices = plan.vertexCount;
         u64 positionBytes = layout.positionBytes(vertices);
@@ -382,7 +384,7 @@ namespace at {
 
     void Renderer::drawMesh(const Mesh *mesh, i32 mode) {
         bool flat = state.flatShading;
-        if (!plan.plan(mode, mesh->count, flat)) return;
+        if (!plan.plan(mode, mesh->count, flat, contextValue->device->triangleFans)) return;
         u64 indexBytes = plan.indexing == PrimitivePlan::GENERATED ? u64(plan.indexCount) * 4 : 0;
         if (plan.indexing != PrimitivePlan::QUADS) {
             if (!prepare(indexBytes)) return;

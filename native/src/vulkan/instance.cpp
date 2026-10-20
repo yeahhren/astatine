@@ -61,6 +61,8 @@ namespace at {
         std::vector<const char *> extensions;
         for (const auto &extension: windowExtensions) extensions.push_back(extension.c_str());
         if (debug) extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        bool portability = hasInstanceExtension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+        if (portability) extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
         if (properties2) extensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
         externalCapabilities = properties2 && hasInstanceExtension(VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME) &&
                                hasInstanceExtension(VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME);
@@ -78,6 +80,7 @@ namespace at {
 
         VkInstanceCreateInfo info{.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
         info.pApplicationInfo = &application;
+        if (portability) info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
         info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
         info.ppEnabledExtensionNames = extensions.data();
         if (debug) {

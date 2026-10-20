@@ -506,11 +506,11 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 				};
 			} else {
 
-				this.colorSpaceConverter = new ColorSpaceFragmentConverter(main.width, main.height, IrisVideoSettings.colorSpace);
+				this.colorSpaceConverter = new ColorSpaceFragmentConverter(main.width, main.height, IrisVideoSettings.colorSpace());
 			}
 
 			cleanup.add(this.colorSpaceConverter::close);
-			this.currentColorSpace = IrisVideoSettings.colorSpace;
+			this.currentColorSpace = IrisVideoSettings.colorSpace();
 
 			{
 				for (ComputeProgram program : this.shadowComputes) {
@@ -986,8 +986,8 @@ public class IrisRenderingPipeline implements WorldRenderingPipeline, ShaderRend
 			this.clearPasses = ClearPassCreator.createClearPasses(renderTargets, false, packDirectives.getRenderTargetDirectives());
 		}
 
-		if (changed || IrisVideoSettings.colorSpace != currentColorSpace) {
-			currentColorSpace = IrisVideoSettings.colorSpace;
+		if (changed || IrisVideoSettings.colorSpace() != currentColorSpace) {
+			currentColorSpace = IrisVideoSettings.colorSpace();
 			colorSpaceConverter.rebuildProgram(main.width, main.height, currentColorSpace);
 		}
 

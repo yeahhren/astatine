@@ -13,7 +13,7 @@ namespace at {
         i32 mode = 0;
         bool flat = false;
 
-        bool plan(i32 drawMode, u32 count, bool flatShading);
+        bool plan(i32 drawMode, u32 count, bool flatShading, bool triangleFans);
 
         void generate(u32 *out) const;
     };

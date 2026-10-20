@@ -40,6 +40,8 @@ namespace at {
         VkImageAspectFlags depthAspect = 0;
         VkFormat packDepthFormat = VK_FORMAT_UNDEFINED;
         bool wideLines = false;
+        bool triangleFans = true;
+        bool inPassClears = true;
         bool logicOp = false;
         bool multiDrawIndirect = false;
         u32 maxDrawIndirectCount = 1;

@@ -3,7 +3,6 @@ package yt.ren.astatine
 import net.fabricmc.loader.api.FabricLoader
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 
 object NativeLoader {
     @Volatile
@@ -21,7 +20,7 @@ object NativeLoader {
         val directory = FabricLoader.getInstance().gameDir.resolve("astatine").resolve("natives")
         Files.createDirectories(directory)
         val target = directory.resolve(name)
-        if (!Files.exists(target)) {
+        if (!Files.exists(target) || !Files.readAllBytes(target).contentEquals(bytes)) {
             val temporary = Files.createTempFile(directory, "astatine", ".tmp")
             Files.write(temporary, bytes)
             Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)

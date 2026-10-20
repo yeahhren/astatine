@@ -1,199 +1,122 @@
 package net.irisshaders.iris.config;
 
 import net.irisshaders.iris.Iris;
-import net.irisshaders.iris.gui.option.IrisVideoSettings;
 import net.irisshaders.iris.pathways.colorspace.ColorSpace;
+import yt.ren.astatine.config.AstatineConfig;
+import yt.ren.astatine.config.AstatineOptions;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Properties;
 
 /**
- * A class dedicated to storing the config values of shaderpacks. Right now it only stores the path to the current shaderpack
+ * Iris' view of its settings.
  */
 public class IrisConfig {
-	private static final String COMMENT = "This file stores configuration options for Iris, such as the currently active shaderpack";
-	private final Path propertiesPath;
-	/**
-	 * The path to the current shaderpack. Null if the internal shaderpack is being used.
-	 */
-	private String shaderPackName;
-	/**
-	 * Whether or not shaders are used for rendering. False to disable all shader-based rendering, true to enable it.
-	 */
-	private boolean enableShaders;
-	/**
-	 * Whether or not to allow core shaders to draw to the main color texture.
-	 */
-	private boolean allowUnknownShaders;
-	/**
-	 * If debug features should be enabled. Gives much more detailed OpenGL error outputs at the cost of performance.
-	 */
-	private boolean enableDebugOptions;
-	/**
-	 * If the update notification should be disabled or not.
-	 */
-	private boolean disableUpdateMessage;
-	private boolean hasRunVulkan;
+	private final Path legacyPropertiesPath;
 
-	public IrisConfig(Path propertiesPath) {
-		shaderPackName = null;
-		enableShaders = true;
-		allowUnknownShaders = false;
-		enableDebugOptions = false;
-		disableUpdateMessage = false;
-		this.hasRunVulkan = false;
-		this.propertiesPath = propertiesPath;
+	public IrisConfig(Path legacyPropertiesPath) {
+		this.legacyPropertiesPath = legacyPropertiesPath;
 	}
 
-	/**
-	 * Initializes the configuration, loading it if it is present and creating a default config otherwise.
-	 *
-	 * @throws IOException file exceptions
-	 */
 	public void initialize() throws IOException {
-		load();
-		if (!Files.exists(propertiesPath)) {
-			save();
+		AstatineOptions.init();
+
+		if (!AstatineConfig.INSTANCE.existed() && Files.exists(this.legacyPropertiesPath)) {
+			this.importLegacy();
+			this.save();
 		}
 	}
 
-	/**
-	 * returns whether or not the current shaderpack is internal
-	 *
-	 * @return if the shaderpack is internal
-	 */
+	private void importLegacy() throws IOException {
+		Properties properties = new Properties();
+
+		try (InputStream is = Files.newInputStream(this.legacyPropertiesPath)) {
+			properties.load(is);
+		}
+
+		this.setShaderPackName(properties.getProperty("shaderPack"));
+		AstatineOptions.SHADERS_ENABLED.set(!"false".equals(properties.getProperty("enableShaders")));
+		AstatineOptions.ALLOW_UNKNOWN_SHADERS.set("true".equals(properties.getProperty("allowUnknownShaders")));
+		AstatineOptions.DEBUG_OPTIONS.set("true".equals(properties.getProperty("enableDebugOptions")));
+		AstatineOptions.DISABLE_UPDATE_MESSAGE.set("true".equals(properties.getProperty("disableUpdateMessage")));
+		AstatineOptions.HAS_RUN_VULKAN.set("true".equals(properties.getProperty("hasRunVulkan")));
+
+		try {
+			AstatineOptions.SHADOW_DISTANCE.set(Integer.parseInt(properties.getProperty("maxShadowRenderDistance", "32")));
+			AstatineOptions.COLOR_SPACE.set(ColorSpace.valueOf(properties.getProperty("colorSpace", "SRGB")));
+		} catch (IllegalArgumentException e) {
+			Iris.logger.error("Ignoring invalid shadow distance or color space in iris.properties");
+		}
+
+		Iris.logger.info("Imported settings from " + this.legacyPropertiesPath);
+	}
+
 	public boolean isInternal() {
 		return false;
 	}
 
 	/**
-	 * Returns the name of the current shaderpack
-	 *
-	 * @return Returns the current shaderpack name - if internal shaders are being used it returns "(internal)"
+	 * @return the selected shader pack, or empty if none is selected
 	 */
 	public Optional<String> getShaderPackName() {
-		return Optional.ofNullable(shaderPackName);
+		String name = AstatineOptions.SHADER_PACK.get();
+		return name.isEmpty() ? Optional.empty() : Optional.of(name);
 	}
 
-	/**
-	 * Sets the name of the current shaderpack
-	 */
 	public void setShaderPackName(String name) {
-		if (name == null || name.equals("(internal)") || name.isEmpty()) {
-			this.shaderPackName = null;
-		} else {
-			this.shaderPackName = name;
+		if (name == null || name.equals("(internal)")) {
+			name = "";
 		}
+
+		AstatineOptions.SHADER_PACK.set(name);
 	}
 
-	/**
-	 * Determines whether or not shaders are used for rendering.
-	 *
-	 * @return False to disable all shader-based rendering, true to enable shader-based rendering.
-	 */
 	public boolean areShadersEnabled() {
-		return enableShaders;
+		return AstatineOptions.SHADERS_ENABLED.getBoolean();
+	}
+
+	public void setShadersEnabled(boolean enabled) {
+		AstatineOptions.SHADERS_ENABLED.set(enabled);
 	}
 
 	public boolean areDebugOptionsEnabled() {
-		return enableDebugOptions;
-	}
-
-	public boolean shouldDisableUpdateMessage() {
-		return disableUpdateMessage;
-	}
-
-	public boolean hasRunVulkan() {
-		return this.hasRunVulkan;
-	}
-
-	public void setHasRunVulkan(boolean hasRunVulkan) {
-		this.hasRunVulkan = hasRunVulkan;
+		return AstatineOptions.DEBUG_OPTIONS.getBoolean();
 	}
 
 	public void setDebugEnabled(boolean enabled) {
-		enableDebugOptions = enabled;
+		AstatineOptions.DEBUG_OPTIONS.set(enabled);
 	}
 
-	/**
-	 * Sets whether shaders should be used for rendering.
-	 */
-	public void setShadersEnabled(boolean enabled) {
-		this.enableShaders = enabled;
+	public boolean shouldDisableUpdateMessage() {
+		return AstatineOptions.DISABLE_UPDATE_MESSAGE.getBoolean();
 	}
 
-	/**
-	 * loads the config file and then populates the string, int, and boolean entries with the parsed entries
-	 *
-	 * @throws IOException if the file cannot be loaded
-	 */
-
-	public void load() throws IOException {
-		if (!Files.exists(propertiesPath)) {
-			return;
-		}
-
-		Properties properties = new Properties();
-		// NB: This uses ISO-8859-1 with unicode escapes as the encoding
-		try (InputStream is = Files.newInputStream(propertiesPath)) {
-			properties.load(is);
-		}
-
-		shaderPackName = properties.getProperty("shaderPack");
-		enableShaders = !"false".equals(properties.getProperty("enableShaders"));
-		allowUnknownShaders = "true".equals(properties.getProperty("allowUnknownShaders"));
-		enableDebugOptions = "true".equals(properties.getProperty("enableDebugOptions"));
-		disableUpdateMessage = "true".equals(properties.getProperty("disableUpdateMessage"));
-		this.hasRunVulkan = "true".equals(properties.getProperty("hasRunVulkan"));
-		try {
-			IrisVideoSettings.shadowDistance = Integer.parseInt(properties.getProperty("maxShadowRenderDistance", "32"));
-			IrisVideoSettings.colorSpace = ColorSpace.valueOf(properties.getProperty("colorSpace", "SRGB"));
-		} catch (IllegalArgumentException e) {
-			Iris.logger.error("Shadow distance setting reset; value is invalid.");
-			IrisVideoSettings.shadowDistance = 32;
-			IrisVideoSettings.colorSpace = ColorSpace.SRGB;
-			save();
-		}
-
-		if (shaderPackName != null) {
-			if (shaderPackName.equals("(internal)") || shaderPackName.isEmpty()) {
-				shaderPackName = null;
-			}
-		}
+	public boolean hasRunVulkan() {
+		return AstatineOptions.HAS_RUN_VULKAN.getBoolean();
 	}
 
-	/**
-	 * Serializes the config into a file. Should be called whenever any config values are modified.
-	 *
-	 * @throws IOException file exceptions
-	 */
-	public void save() throws IOException {
-		Properties properties = new Properties();
-		properties.setProperty("shaderPack", getShaderPackName().orElse(""));
-		properties.setProperty("enableShaders", Boolean.toString(enableShaders));
-		properties.setProperty("allowUnknownShaders", Boolean.toString(allowUnknownShaders));
-		properties.setProperty("enableDebugOptions", Boolean.toString(enableDebugOptions));
-		properties.setProperty("disableUpdateMessage", Boolean.toString(disableUpdateMessage));
-		properties.setProperty("hasRunVulkan", Boolean.toString(this.hasRunVulkan));
-		properties.setProperty("maxShadowRenderDistance", String.valueOf(IrisVideoSettings.shadowDistance));
-		properties.setProperty("colorSpace", IrisVideoSettings.colorSpace.name());
-		// NB: This uses ISO-8859-1 with unicode escapes as the encoding
-		try (OutputStream os = Files.newOutputStream(propertiesPath)) {
-			properties.store(os, COMMENT);
-		}
+	public void setHasRunVulkan(boolean hasRunVulkan) {
+		AstatineOptions.HAS_RUN_VULKAN.set(hasRunVulkan);
 	}
 
 	public boolean shouldAllowUnknownShaders() {
-		return allowUnknownShaders;
+		return AstatineOptions.ALLOW_UNKNOWN_SHADERS.getBoolean();
 	}
 
-	public void setUnknown(boolean b) throws IOException {
-		this.allowUnknownShaders = b;
-		save();
+	public void setUnknown(boolean allow) throws IOException {
+		AstatineOptions.ALLOW_UNKNOWN_SHADERS.set(allow);
+		this.save();
+	}
+
+	public void load() throws IOException {
+		AstatineConfig.INSTANCE.load();
+	}
+
+	public void save() throws IOException {
+		AstatineConfig.INSTANCE.save();
 	}
 }

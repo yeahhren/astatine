@@ -35,7 +35,7 @@ public class IrisExclusiveUniforms {
 		EndFlashStorage endFlashStorage = new EndFlashStorage();
 		updateNotifier.addListener(endFlashStorage::tick);
 
-		uniforms.uniform1i(UniformUpdateFrequency.PER_TICK, "currentColorSpace", () -> IrisVideoSettings.colorSpace.ordinal());
+		uniforms.uniform1i(UniformUpdateFrequency.PER_TICK, "currentColorSpace", () -> IrisVideoSettings.colorSpace().ordinal());
 
 		uniforms.uniform1f(PER_FRAME, "chunkFadeTimeInv", () -> 0.0f);
 		uniforms.uniform1i(PER_FRAME, "textureFilteringMode", () -> 0);

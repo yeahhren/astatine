@@ -17,4 +17,11 @@ public abstract class DebugOverlayMixin {
 			Shaderpacks.addDebugText(callback.getReturnValue());
 		}
 	}
+
+	@Inject(method = "getGameInfo", at = @At("RETURN"))
+	private void astatine$addShaderpackDebugInfo(CallbackInfoReturnable<List<String>> callback) {
+		if (Shaderpacks.isInitialized()) {
+			Shaderpacks.addGameDebugText(callback.getReturnValue());
+		}
+	}
 }

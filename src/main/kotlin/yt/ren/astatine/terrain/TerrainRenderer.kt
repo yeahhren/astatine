@@ -11,6 +11,7 @@ import net.minecraft.util.math.Direction
 import net.minecraft.util.math.MathHelper
 import org.apache.logging.log4j.LogManager
 import yt.ren.astatine.Native
+import yt.ren.astatine.config.AstatineOptions
 import yt.ren.astatine.memory.LongObjectMap
 import yt.ren.astatine.memory.Memory
 import yt.ren.astatine.shaderpack.Shaderpacks
@@ -30,14 +31,34 @@ object TerrainRenderer {
     private const val SCHEDULE_ENTRIES = 256
     private const val TRANSLUCENT_SORTS = 15
 
-    private val threads = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 8)
-    private val maxInFlight = threads * 3
+    @Volatile
+    private var threads = AstatineOptions.chunkUpdateThreads()
+    private val maxInFlight get() = threads * 3
     private val executor = ThreadPoolExecutor(threads, threads, 30L, TimeUnit.SECONDS, LinkedBlockingQueue()) { task ->
         Thread(task, "Astatine Chunk Builder").apply {
             isDaemon = true
             priority = Thread.NORM_PRIORITY - 1
         }
     }.apply { allowCoreThreadTimeOut(true) }
+
+    init {
+        AstatineOptions.CHUNK_UPDATE_THREADS.onChange { resizeExecutor() }
+    }
+
+    private fun resizeExecutor() {
+        val count = AstatineOptions.chunkUpdateThreads()
+        // Grow the maximum first so the core size never exceeds it.
+        if (count > executor.maximumPoolSize) {
+            executor.maximumPoolSize = count
+            executor.corePoolSize = count
+        } else {
+            executor.corePoolSize = count
+            executor.maximumPoolSize = count
+        }
+        threads = count
+        logger.info("Using {} chunk build threads", count)
+    }
+
     private val inFlight = AtomicInteger()
     private val completed = ConcurrentLinkedQueue<SectionBuild>()
     private val failed = ConcurrentLinkedQueue<SectionBuild>()

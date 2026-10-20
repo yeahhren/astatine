@@ -236,7 +236,7 @@ public class ShadowRenderer {
 			String setter = "(set by shader pack)";
 
 			if (renderMultiplier < 0) {
-				distance = IrisVideoSettings.shadowDistance * 16;
+				distance = IrisVideoSettings.shadowDistance() * 16;
 				setter = "(set by user)";
 			}
 
@@ -280,7 +280,7 @@ public class ShadowRenderer {
 	}
 
 	public void renderShadows(float tickDelta) {
-		if (IrisVideoSettings.getOverriddenShadowDistance(IrisVideoSettings.shadowDistance) == 0) {
+		if (IrisVideoSettings.getOverriddenShadowDistance(IrisVideoSettings.shadowDistance()) == 0) {
 			return;
 		}
 
@@ -295,7 +295,7 @@ public class ShadowRenderer {
 		renderDistance = (int) ((halfPlaneLength * renderDistanceMultiplier) / 16);
 
 		if (renderDistanceMultiplier < 0) {
-			renderDistance = IrisVideoSettings.shadowDistance;
+			renderDistance = IrisVideoSettings.shadowDistance();
 		}
 
 
@@ -597,7 +597,7 @@ public class ShadowRenderer {
 	}
 
 	public void addDebugText(List<String> messages) {
-		if (IrisVideoSettings.getOverriddenShadowDistance(IrisVideoSettings.shadowDistance) == 0) {
+		if (IrisVideoSettings.getOverriddenShadowDistance(IrisVideoSettings.shadowDistance()) == 0) {
 			messages.add("[" + Iris.MODNAME + "] Shadow Maps: off, shadow distance 0");
 			return;
 		}

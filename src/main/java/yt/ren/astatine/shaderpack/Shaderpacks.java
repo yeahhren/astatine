@@ -360,7 +360,17 @@ public class Shaderpacks {
 
 		lines.add("[" + Iris.MODNAME + "] Shaderpack: " + Iris.getCurrentPackName() + (Iris.isFallback() ? " (fallback)" : ""));
 		Iris.getCurrentPack().ifPresent(pack -> lines.add("[" + Iris.MODNAME + "] " + pack.getProfileInfo()));
-		lines.add("[" + Iris.MODNAME + "] Color space: " + IrisVideoSettings.colorSpace.name());
+		lines.add("[" + Iris.MODNAME + "] Color space: " + IrisVideoSettings.colorSpace().name());
+
+		var pipeline = pipeline();
+
+		if (pipeline != null) {
+			pipeline.addDebugText(lines);
+		}
+	}
+
+	public static void addGameDebugText(List<String> lines) {
+		lines.add("");
 
 		var pipeline = pipeline();
 

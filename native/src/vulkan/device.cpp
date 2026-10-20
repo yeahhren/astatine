@@ -162,6 +162,11 @@ namespace at {
         features.fillModeNonSolid = supported.fillModeNonSolid;
 
         std::vector extensions{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+        if (hasExtension(physical, "VK_KHR_portability_subset")) {
+            extensions.push_back("VK_KHR_portability_subset");
+            triangleFans = false; // Metal has no fan topology
+            inPassClears = false;
+        }
         if (bindless) {
             extensions.push_back(VK_KHR_MAINTENANCE_3_EXTENSION_NAME);
             extensions.push_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
@@ -380,6 +385,38 @@ namespace at {
         loadDevice(handle);
         vkGetDeviceQueue(handle, queueFamily, 0, &queue);
         if (transferFamily != ~0u) vkGetDeviceQueue(handle, transferFamily, 0, &transferQueue);
+
+        // the advertised limits can overstate what one layout may hold (MoltenVK caps combined samplers far lower)
+        if (bindless && vkGetDescriptorSetLayoutSupportKHR) {
+            auto supportsCapacity = [&](u32 count) {
+                VkDescriptorSetLayoutBinding binding{};
+                binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                binding.descriptorCount = count;
+                binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+                VkDescriptorBindingFlagsEXT flags = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT_EXT |
+                                                    VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT_EXT |
+                                                    VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT_EXT;
+                VkDescriptorSetLayoutBindingFlagsCreateInfoEXT flagsInfo{
+                    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO_EXT
+                };
+                flagsInfo.bindingCount = 1;
+                flagsInfo.pBindingFlags = &flags;
+                VkDescriptorSetLayoutCreateInfo layoutInfo{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+                layoutInfo.pNext = &flagsInfo;
+                layoutInfo.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT_EXT;
+                layoutInfo.bindingCount = 1;
+                layoutInfo.pBindings = &binding;
+                VkDescriptorSetLayoutSupport support{.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_SUPPORT};
+                vkGetDescriptorSetLayoutSupportKHR(handle, &layoutInfo, &support);
+                return support.supported == VK_TRUE;
+            };
+            while (bindlessCapacity >= MIN_BINDLESS_CAPACITY && !supportsCapacity(bindlessCapacity)) bindlessCapacity /= 2;
+            if (bindlessCapacity < MIN_BINDLESS_CAPACITY) {
+                bindless = false;
+                bindlessCapacity = 0;
+                runtimeDescriptorArray = false;
+            }
+        }
 
         for (VkFormat format: {
                  VK_FORMAT_X8_D24_UNORM_PACK32, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT, VK_FORMAT_D16_UNORM

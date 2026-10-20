@@ -77,6 +77,7 @@ AT_EXPORT(void, setVsync)(JNIEnv *env, jclass, jboolean enabled) {
 AT_EXPORT(jstring, deviceName)(JNIEnv *env
                                ,
                                jclass) {
+    if (!Renderer::ready()) return env->NewStringUTF("");
     return env->NewStringUTF(Renderer::get().context().device->name.c_str());
 }
 
@@ -178,12 +179,14 @@ AT_EXPORT(jboolean, shaderStores)(JNIEnv *, jclass) {
 AT_EXPORT(jint, vendorId)(JNIEnv *
                           ,
                           jclass) {
+    if (!Renderer::ready()) return 0;
     return static_cast<jint>(Renderer::get().context().device->vendorId);
 }
 
 AT_EXPORT(jint, apiVersion)(JNIEnv *
                             ,
                             jclass) {
+    if (!Renderer::ready()) return 0;
     return static_cast<jint>(Renderer::get().context().device->apiVersion);
 }
 
