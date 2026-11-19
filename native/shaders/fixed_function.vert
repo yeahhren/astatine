@@ -1,6 +1,8 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
+invariant gl_Position;
+
 #include "fixed_function.glsl"
 
 layout(location = 0) in vec3 inPosition;

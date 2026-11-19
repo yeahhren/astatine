@@ -33,6 +33,14 @@ namespace at {
         virtual void passStarted() {
         }
 
+        virtual VkRenderPass renderPass(VkAttachmentLoadOp colorLoad, VkAttachmentLoadOp depthLoad);
+
+        [[nodiscard]] virtual u32 depthAttachmentIndex() const { return 1; }
+
+        [[nodiscard]] virtual bool ignoresColorClear() const { return false; }
+
+        [[nodiscard]] virtual bool hasDepth() const;
+
         RenderPassType &pass;
     };
 

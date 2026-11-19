@@ -16,6 +16,7 @@ val featherBuild: String by project
 val fabricKotlinVersion: String by project
 val pylonVersion: String by project
 val oslVersion: String by project
+val lwjglVersion: String by project
 
 group = mavenGroup
 version = "$modVersion+mc$minecraftVersion"
@@ -33,6 +34,7 @@ loom {
         named("client") {
             programArgs("--username", "Player", "--accessToken", "0")
             vmArgs(
+                "-XX:+UnlockExperimentalVMOptions",
                 "--enable-native-access=ALL-UNNAMED", "-XX:+UseZGC", "-XX:+UseCompactObjectHeaders",
                 "-Xms4G", "-Xmx4G", "-XX:+AlwaysPreTouch", "-XX:ConcGCThreads=2", // fixes microstutters for me -_-
             )
@@ -57,30 +59,62 @@ dependencies {
     modImplementation("pl.tomgirl:pylon:$pylonVersion")
 
     ploceus.dependOsl(oslVersion)
+
+    implementation("org.antlr:antlr4-runtime:4.13.1")
+    include("org.antlr:antlr4-runtime:4.13.1")
+    implementation("io.github.douira:glsl-transformer:3.0.0-pre3") {
+        exclude(group = "org.antlr", module = "antlr4")
+    }
+    include("io.github.douira:glsl-transformer:3.0.0-pre3")
+    implementation("org.anarres:jcpp:1.4.14")
+    include("org.anarres:jcpp:1.4.14")
+    implementation("org.joml:joml:1.10.8")
+    include("org.joml:joml:1.10.8")
+
+}
+
+sourceSets {
+    main {
+        java {
+            srcDir("src/renderpearl/java")
+            srcDir("src/vendored/java")
+            srcDir("src/core/java")
+            srcDir("src/iris/java")
+        }
+        resources {
+            srcDir("src/iris/resources")
+        }
+        kotlin {
+            srcDir("src/core/kotlin")
+        }
+    }
+
 }
 
 kotlin {
     jvmToolchain(25)
     compilerOptions {
-        jvmTarget = JvmTarget.JVM_1_8
+        jvmTarget = JvmTarget.JVM_25
         freeCompilerArgs.addAll("-Xno-param-assertions", "-Xno-call-assertions", "-Xno-receiver-assertions")
     }
 }
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
     withSourcesJar()
 }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
-    options.release = 8
+    options.release = 25
+    options.compilerArgs.addAll(listOf("-Xmaxerrs", "100000"))
 }
 
 val nativeBuildDir = layout.buildDirectory.dir("native")
 val nativeOutputDir = layout.buildDirectory.dir("natives")
 val nativeBuildType = providers.gradleProperty("nativeBuildType").orElse("Release")
+val cmakeExecutable = providers.gradleProperty("cmake").orElse("cmake")
 val nativeJavaHome = javaToolchains.launcherFor(java.toolchain).map { it.metadata.installationPath.asFile.absolutePath }
 
 val configureNative by tasks.registering(Exec::class) {
@@ -88,7 +122,7 @@ val configureNative by tasks.registering(Exec::class) {
     inputs.file("native/CMakeLists.txt")
     inputs.property("buildType", nativeBuildType)
     outputs.file(nativeBuildDir.map { it.file("CMakeCache.txt") })
-    executable = "cmake"
+    executable = cmakeExecutable.get()
     argumentProviders.add(CommandLineArgumentProvider {
         listOf(
             "-S", file("native").absolutePath,
@@ -107,20 +141,28 @@ val buildNative by tasks.registering(Exec::class) {
     inputs.dir("native/shaders")
     inputs.dir("native/cmake")
     outputs.dir(nativeOutputDir)
-    executable = "cmake"
+    executable = cmakeExecutable.get()
     argumentProviders.add(CommandLineArgumentProvider {
         listOf("--build", nativeBuildDir.get().asFile.absolutePath, "--config", nativeBuildType.get(), "--parallel")
     })
 }
+
+val prebuiltNatives = providers.gradleProperty("prebuiltNatives")
 
 tasks.processResources {
     inputs.property("version", project.version)
     filesMatching("fabric.mod.json") {
         expand("version" to project.version)
     }
-    dependsOn(buildNative)
-    from(nativeOutputDir) {
-        into("natives")
+    if (prebuiltNatives.isPresent) {
+        from(prebuiltNatives) {
+            into("natives")
+        }
+    } else {
+        dependsOn(buildNative)
+        from(nativeOutputDir) {
+            into("natives")
+        }
     }
 }
 

@@ -17,6 +17,44 @@ set(ASTATINE_OUTPUT_DIR "${CMAKE_BINARY_DIR}/out" CACHE PATH "Where the built li
 
 find_package(Vulkan REQUIRED COMPONENTS glslc)
 
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ASTATINE_IPO OUTPUT ASTATINE_IPO_ERROR LANGUAGES CXX)
+if (ASTATINE_IPO)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+else ()
+    message(WARNING "LTO unavailable: ${ASTATINE_IPO_ERROR}")
+endif ()
+if (MSVC)
+    add_compile_options($<$<CONFIG:Release>:/Gy> $<$<CONFIG:Release>:/Gw>)
+else ()
+    add_compile_options($<$<CONFIG:Release>:-ffunction-sections> $<$<CONFIG:Release>:-fdata-sections>)
+endif ()
+
+include(FetchContent)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
+set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+set(ENABLE_HLSL OFF CACHE BOOL "" FORCE)
+set(ENABLE_OPT OFF CACHE BOOL "" FORCE)
+set(ENABLE_SPVREMAPPER OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    glslang
+    GIT_REPOSITORY https://github.com/KhronosGroup/glslang.git
+    GIT_TAG vulkan-sdk-1.4.357.0
+    GIT_SHALLOW TRUE
+)
+set(ASTATINE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+if (MSVC)
+    set(CMAKE_CXX_FLAGS_RELEASE "/O1 /DNDEBUG")
+else ()
+    set(CMAKE_CXX_FLAGS_RELEASE "-Os -DNDEBUG")
+endif ()
+FetchContent_MakeAvailable(glslang)
+set(CMAKE_CXX_FLAGS_RELEASE "${ASTATINE_CXX_FLAGS_RELEASE}")
+
 if (WIN32)
     set(ASTATINE_OS windows)
     set(JNI_PLATFORM_INCLUDE win32)
@@ -138,20 +176,23 @@ target_include_directories(astatine PRIVATE
     "${ASTATINE_JAVA_HOME}/include"
     "${ASTATINE_JAVA_HOME}/include/${JNI_PLATFORM_INCLUDE}"
 )
-target_link_libraries(astatine PRIVATE Vulkan::Headers)
+target_link_libraries(astatine PRIVATE Vulkan::Headers glslang::glslang glslang::glslang-default-resource-limits)
 target_compile_definitions(astatine PRIVATE VK_NO_PROTOTYPES NOMINMAX WIN32_LEAN_AND_MEAN)
 
 if (MSVC)
     target_compile_options(astatine PRIVATE /W4 /permissive- /Zc:__cplusplus /utf-8 /EHsc /GR- /wd4100 /wd4201)
-    target_compile_options(astatine PRIVATE $<$<CONFIG:Release>:/O2 /Ob3 /Oi /GS- /Gy>)
-    target_link_options(astatine PRIVATE $<$<CONFIG:Release>:/OPT:REF /OPT:ICF>)
+    target_compile_options(astatine PRIVATE $<$<CONFIG:Release>:/O2 /Ob2 /Oi /GS- /Gy /Gw>)
+    target_link_options(astatine PRIVATE $<$<CONFIG:Release>:/OPT:REF /OPT:ICF /DEBUG:NONE /INCREMENTAL:NO>)
     set_property(TARGET astatine PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     target_link_libraries(astatine PRIVATE d3d12 dxgi)
 else ()
     target_compile_options(astatine PRIVATE -Wall -Wextra -Wno-unused-parameter -fno-rtti)
-    target_compile_options(astatine PRIVATE $<$<CONFIG:Release>:-O3 -fno-plt>)
-    if (NOT APPLE)
+    target_compile_options(astatine PRIVATE $<$<CONFIG:Release>:-O2 -fno-plt>)
+    if (APPLE)
+        target_link_options(astatine PRIVATE $<$<CONFIG:Release>:LINKER:-dead_strip,-dead_strip_dylibs,-x,-S>)
+    else ()
         target_link_options(astatine PRIVATE -static-libstdc++ -static-libgcc -Wl,--gc-sections -Wl,-z,defs)
+        target_link_options(astatine PRIVATE $<$<CONFIG:Release>:LINKER:--exclude-libs,ALL,-s,-O1,--as-needed,--hash-style=gnu>)
         target_link_libraries(astatine PRIVATE dl pthread)
     endif ()
 endif ()

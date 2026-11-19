@@ -15,6 +15,7 @@
     X(vkGetPhysicalDeviceMemoryProperties) \
     X(vkGetPhysicalDeviceQueueFamilyProperties) \
     X(vkGetPhysicalDeviceFormatProperties) \
+    X(vkGetPhysicalDeviceImageFormatProperties) \
     X(vkEnumerateDeviceExtensionProperties) \
     X(vkCreateDevice) \
     X(vkGetDeviceProcAddr) \
@@ -89,10 +90,18 @@
     X(vkCmdSetLineWidth) \
     X(vkCmdSetDepthBias) \
     X(vkCmdBindDescriptorSets) \
+    X(vkCmdPushConstants) \
+    X(vkCreateComputePipelines) \
+    X(vkCmdDispatch) \
+    X(vkCmdDispatchIndirect) \
+    X(vkCreateBufferView) \
+    X(vkDestroyBufferView) \
+    X(vkCmdFillBuffer) \
     X(vkCmdBindIndexBuffer) \
     X(vkCmdBindVertexBuffers) \
     X(vkCmdDraw) \
     X(vkCmdDrawIndexed) \
+    X(vkCmdDrawIndirect) \
     X(vkCmdDrawIndexedIndirect) \
     X(vkCmdCopyBuffer) \
     X(vkCmdCopyImage) \
@@ -100,6 +109,8 @@
     X(vkCmdCopyBufferToImage) \
     X(vkCmdCopyImageToBuffer) \
     X(vkCmdClearAttachments) \
+    X(vkCmdClearColorImage) \
+    X(vkCmdClearDepthStencilImage) \
     X(vkCmdPipelineBarrier) \
     X(vkCreateQueryPool) \
     X(vkDestroyQueryPool) \
@@ -114,12 +125,20 @@
     X(vkAcquireNextImageKHR) \
     X(vkQueuePresentKHR)
 
+#define AT_VK_OPTIONAL_DEVICE_FUNCTIONS(X) \
+    X(vkCmdPushDescriptorSetKHR) \
+    X(vkCmdDrawMultiEXT) \
+    X(vkCmdDrawMultiIndexedEXT) \
+    X(vkGetDescriptorSetLayoutSupportKHR) \
+    X(vkSetDebugUtilsObjectNameEXT)
+
 namespace at::vk {
 #define AT_VK_DECLARE(name) extern PFN_##name name;
     AT_VK_GLOBAL_FUNCTIONS(AT_VK_DECLARE)
     AT_VK_INSTANCE_FUNCTIONS(AT_VK_DECLARE)
     AT_VK_OPTIONAL_INSTANCE_FUNCTIONS(AT_VK_DECLARE)
     AT_VK_DEVICE_FUNCTIONS(AT_VK_DECLARE)
+    AT_VK_OPTIONAL_DEVICE_FUNCTIONS(AT_VK_DECLARE)
 #undef AT_VK_DECLARE
 
     void loadGlobal(PFN_vkGetInstanceProcAddr getInstanceProcAddr);

@@ -37,11 +37,12 @@ namespace at::terrain {
         bool empty = true;
         bool urgent = false;
         u64 sequence = 0;
+        u32 units = 1;
     };
 
     std::unique_ptr<MeshResult> mesh(const Tables &tables, const Snapshot &snapshot, float cameraX, float cameraY,
                                      float cameraZ);
 
     void sortQuads(std::vector<Vertex> &vertices, std::vector<float> &centroids, float cameraX, float cameraY,
-                   float cameraZ);
+                   float cameraZ, u32 units);
 } // namespace at::terrain

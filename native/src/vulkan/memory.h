@@ -75,9 +75,20 @@ namespace at {
         Allocation allocation;
     };
 
+    struct ImageShape {
+        u32 width;
+        u32 height;
+        u32 depth = 1;
+        u32 layers = 1;
+        VkImageViewType viewType = VK_IMAGE_VIEW_TYPE_2D;
+    };
+
     class GpuImage {
     public:
         GpuImage(const Device &device, MemoryAllocator &allocator, u32 width, u32 height, u32 levels, VkFormat format,
+                 VkImageAspectFlags aspect, VkImageUsageFlags usage);
+
+        GpuImage(const Device &device, MemoryAllocator &allocator, const ImageShape &shape, u32 levels, VkFormat format,
                  VkImageAspectFlags aspect, VkImageUsageFlags usage);
 
         ~GpuImage();
@@ -94,9 +105,12 @@ namespace at {
         VkImageView view = VK_NULL_HANDLE;
         u32 width;
         u32 height;
+        u32 depth = 1;
+        u32 layers = 1;
         u32 levels;
         VkFormat format;
         VkImageAspectFlags aspect;
+        VkImageViewType viewType = VK_IMAGE_VIEW_TYPE_2D;
 
     private:
         const Device &device;

@@ -4,8 +4,8 @@ Vulkan terrain rendering mod for 1.8.9. Mod implementation written in kotlin + j
 ## Looking ahead
 - [x] initial vulkan renderer
 - [x] playable performance
+- [x] optifine shaderpacks
 - [ ] TBR-specific optimisation work
-- [ ] optifine shaderpacks
 - [ ] hwrt
 - [ ] 1.12.2 / 1.7.10 
 - [ ] any version that doesn't have vulkan support

@@ -1,0 +1,232 @@
+package net.irisshaders.iris.pipeline;
+
+import com.mojang.renderpearl.api.textures.GpuTextureView;
+import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
+import it.unimi.dsi.fastutil.objects.Object2ObjectMaps;
+import net.irisshaders.iris.compat.dh.DHCompat;
+import net.irisshaders.iris.features.FeatureFlags;
+import net.irisshaders.iris.gl.texture.TextureType;
+import net.irisshaders.iris.helpers.Tri;
+import net.irisshaders.iris.shaderpack.materialmap.WorldRenderingSettings;
+import net.irisshaders.iris.shaderpack.properties.CloudSetting;
+import net.irisshaders.iris.shaderpack.properties.ParticleRenderingSettings;
+import net.irisshaders.iris.shaderpack.texture.TextureStage;
+import net.irisshaders.iris.uniforms.FrameUpdateNotifier;
+
+import java.util.List;
+import java.util.OptionalInt;
+
+public class VanillaRenderingPipeline implements WorldRenderingPipeline {
+	public VanillaRenderingPipeline() {
+		WorldRenderingSettings.INSTANCE.setDisableDirectionalShading(shouldDisableDirectionalShading());
+		WorldRenderingSettings.INSTANCE.setUseSeparateAo(false);
+		WorldRenderingSettings.INSTANCE.setSeparateEntityDraws(false);
+		WorldRenderingSettings.INSTANCE.setAmbientOcclusionLevel(1.0f);
+		WorldRenderingSettings.INSTANCE.setExtendedVertexFormat(false);
+		WorldRenderingSettings.INSTANCE.setVoxelizeLightBlocks(false);
+		WorldRenderingSettings.INSTANCE.setBreaksAnisotropy(false);
+		WorldRenderingSettings.INSTANCE.setBlockTypeIds(Object2ObjectMaps.emptyMap());
+	}
+
+	@Override
+	public void beginLevelRendering() {
+
+	}
+
+	@Override
+	public void renderShadows(float tickDelta) {
+		// stub: nothing to do here
+	}
+
+	@Override
+	public void addDebugText(List<String> messages) {
+		// stub: nothing to do here
+	}
+
+	@Override
+	public OptionalInt getForcedShadowRenderDistanceChunksForDisplay() {
+		return OptionalInt.empty();
+	}
+
+	@Override
+	public Object2ObjectMap<Tri<String, TextureType, TextureStage>, String> getTextureMap() {
+		return Object2ObjectMaps.emptyMap();
+	}
+
+	@Override
+	public WorldRenderingPhase getPhase() {
+		return WorldRenderingPhase.NONE;
+	}
+
+	@Override
+	public void setPhase(WorldRenderingPhase phase) {
+
+	}
+
+	@Override
+	public void setOverridePhase(WorldRenderingPhase phase) {
+
+	}
+
+	@Override
+	public int getCurrentNormalTexture() {
+		return 0;
+	}
+
+	@Override
+	public int getCurrentSpecularTexture() {
+		return 0;
+	}
+
+	@Override
+	public void onSetAlbedoTex(GpuTextureView id) {
+
+	}
+
+	@Override
+	public void beginHand() {
+		// stub: nothing to do here
+	}
+
+	@Override
+	public void beginTranslucents() {
+		// stub: nothing to do here
+	}
+
+	@Override
+	public void finalizeLevelRendering() {
+		// stub: nothing to do here
+	}
+
+	@Override
+	public void finalizeGameRendering() {
+		// stub: nothing to do here
+	}
+
+	@Override
+	public void destroy() {
+		// stub: nothing to do here
+	}
+
+	@Override
+	public FrameUpdateNotifier getFrameUpdateNotifier() {
+		// return a dummy notifier
+		return new FrameUpdateNotifier();
+	}
+
+	@Override
+	public boolean shouldDisableVanillaEntityShadows() {
+		return false;
+	}
+
+	@Override
+	public boolean shouldDisableDirectionalShading() {
+		return false;
+	}
+
+	@Override
+	public boolean shouldDisableFrustumCulling() {
+		return false;
+	}
+
+	@Override
+	public boolean shouldDisableOcclusionCulling() {
+		return false;
+	}
+
+	@Override
+	public CloudSetting getCloudSetting() {
+		return CloudSetting.DEFAULT;
+	}
+
+	@Override
+	public boolean shouldRenderUnderwaterOverlay() {
+		return true;
+	}
+
+	@Override
+	public boolean shouldRenderVignette() {
+		return true;
+	}
+
+	@Override
+	public boolean shouldRenderSun() {
+		return true;
+	}
+
+	@Override
+	public boolean shouldRenderWeather() {
+		return true;
+	}
+
+	@Override
+	public boolean shouldRenderWeatherParticles() {
+		return true;
+	}
+
+	@Override
+	public boolean shouldRenderMoon() {
+		return true;
+	}
+
+	@Override
+	public boolean shouldRenderStars() {
+		return true;
+	}
+
+	@Override
+	public boolean shouldRenderSkyDisc() {
+		return true;
+	}
+
+	@Override
+	public boolean shouldWriteRainAndSnowToDepthBuffer() {
+		return false;
+	}
+
+	@Override
+	public ParticleRenderingSettings getParticleRenderingSettings() {
+		return ParticleRenderingSettings.MIXED;
+	}
+
+	@Override
+	public boolean allowConcurrentCompute() {
+		return false;
+	}
+
+	@Override
+	public boolean hasFeature(FeatureFlags flags) {
+		return false;
+	}
+
+	@Override
+	public float getSunPathRotation() {
+		// No sun tilt
+		return 0;
+	}
+
+	@Override
+	public DHCompat getDHCompat() {
+		return null;
+	}
+
+	@Override
+	public void setIsMainBound(boolean mainBound) {
+
+	}
+
+	@Override
+	public void onBeginClear() {
+
+	}
+
+	@Override
+	public boolean supportsEndFlash() {
+		return false;
+	}
+
+	@Override
+	public int getAlbedoTex() {
+		return 0;
+	}
+}

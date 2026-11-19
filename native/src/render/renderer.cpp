@@ -7,6 +7,7 @@
 #include "render/pipelines.h"
 #include "render/targets.h"
 #include "render/texture.h"
+#include "backend/backend.h"
 #include "terrain/terrain.h"
 #include "vulkan/descriptors.h"
 #include "vulkan/device.h"
@@ -24,6 +25,10 @@ namespace at {
     static std::unique_ptr<Instance> vulkanInstance;
     static VkSurfaceKHR windowSurface = VK_NULL_HANDLE;
     static WindowSystem windowSystem;
+
+    const Instance &Renderer::vulkan() {
+        return *at::vulkanInstance;
+    }
 
     Context::Context() = default;
 
@@ -150,6 +155,8 @@ namespace at {
             log::warn("Unable to save the pipeline cache: %s", error.what());
         }
         for (auto &resources: frames) resources->await();
+        backend::Backend::shutdown();
+        for (auto &resources: frames) resources->await();
         terrain.reset();
         fallback.reset();
         std::vector<Framebuffer *> liveFramebuffers(framebuffers.begin(), framebuffers.end());
@@ -233,25 +240,28 @@ namespace at {
         defer([framebuffer] { delete framebuffer; });
     }
 
-    void Renderer::setVsync(bool enabled) {
+    void Renderer::setVsync(bool enabled) const {
         surface->setVsync(enabled);
     }
 
     void Renderer::clear(i32 mask) {
         ensureRecording();
         flushBatch();
+        if (externalPass) return;
         u32 colorMask = state.colorMaskValue;
         u32 attachments = 0;
         bool masked = false;
-        if ((mask & gl::COLOR_BUFFER_BIT) && colorMask != 0) {
+        if ((mask & gl::COLOR_BUFFER_BIT) && colorMask != 0 && !target->ignoresColorClear()) {
             if (colorMask == 0xF) attachments |= CLEAR_COLOR;
             else masked = true;
         }
-        if ((mask & gl::DEPTH_BUFFER_BIT) && state.depthMaskValue && target->pass.hasDepth())
+        if ((mask & gl::DEPTH_BUFFER_BIT) && state.depthMaskValue && target->hasDepth())
             attachments |= CLEAR_DEPTH;
         if (attachments != 0) {
             std::memcpy(clearColorValue, state.clearColorValue, sizeof(clearColorValue));
             clearDepthValue = state.clearDepthValue;
+            // vkCmdClearAttachments is an internal draw on MoltenVK that clobbers the bindings we cache, so restart the pass
+            if (passActive && !contextValue->device->inPassClears) endPass();
             if (passActive) clearAttachments(attachments);
             else pendingClear |= attachments;
         }
@@ -305,7 +315,7 @@ namespace at {
         u8 *attributeAddress = region->attributes || !layout.split
                                    ? stream->address(region->attributes) + static_cast<u64>(first) * layout.attributeStride
                                    : nullptr;
-        layout.write(source, positionAddress, attributeAddress, vertices);
+        layout.write(source, positionAddress, attributeAddress, vertices, 4);
         region->used += vertices;
 
         bool flat = state.flatShading;
@@ -320,7 +330,7 @@ namespace at {
             }
             return true;
         }
-        bindState(layout, plan.topology);
+        if (!bindState(layout, plan.topology)) return true;
         u32 drawRecord = record();
         if (batchSource != region || batchFlat != flat) {
             flushBatch();
@@ -349,8 +359,8 @@ namespace at {
 
     void Renderer::draw(u32 layoutId, i32 mode, const u8 *source, u32 count) {
         const VertexLayout &layout = layouts[layoutId];
-        if (!plan.plan(mode, count, state.flatShading)) return;
-        if (plan.indexing == PrimitivePlan::QUADS && drawBatched(layout, source)) return;
+        if (!plan.plan(mode, count, state.flatShading, contextValue->device->triangleFans)) return;
+        if (!externalPass && plan.indexing == PrimitivePlan::QUADS && drawBatched(layout, source)) return;
         u32 vertices = plan.vertexCount;
         u64 positionBytes = layout.positionBytes(vertices);
         u64 attributeBytes = layout.attributeBytes(vertices);
@@ -358,9 +368,10 @@ namespace at {
         if (!prepare(positionBytes + attributeBytes + indexBytes + 64)) return;
         u64 positions = positionBytes > 0 ? stream->allocate(positionBytes, 16) : 0;
         u64 attributes = attributeBytes > 0 ? stream->allocate(attributeBytes, 16) : 0;
-        layout.write(source, stream->address(positions), stream->address(attributes), vertices);
+        layout.write(source, stream->address(positions), stream->address(attributes), vertices,
+                     plan.mode == gl::QUADS ? 4 : plan.mode == gl::TRIANGLES ? 3 : 0);
         u64 indices = writeIndices(indexBytes);
-        bindState(layout, plan.topology);
+        if (!bindState(layout, plan.topology)) return;
         u32 drawRecord = record();
         VkBuffer buffer = stream->handle();
         if (layout.split) {
@@ -371,14 +382,14 @@ namespace at {
         issue(drawRecord, 0, buffer, indices);
     }
 
-    void Renderer::drawMesh(Mesh *mesh, i32 mode) {
+    void Renderer::drawMesh(const Mesh *mesh, i32 mode) {
         bool flat = state.flatShading;
-        if (!plan.plan(mode, mesh->count, flat)) return;
+        if (!plan.plan(mode, mesh->count, flat, contextValue->device->triangleFans)) return;
         u64 indexBytes = plan.indexing == PrimitivePlan::GENERATED ? u64(plan.indexCount) * 4 : 0;
         if (plan.indexing != PrimitivePlan::QUADS) {
             if (!prepare(indexBytes)) return;
             u64 indices = writeIndices(indexBytes);
-            bindState(*mesh->layout, plan.topology);
+            if (!bindState(*mesh->layout, plan.topology)) return;
             u32 drawRecord = record();
             bindMesh(mesh->pool);
             issue(drawRecord, mesh->firstVertex, stream->handle(), indices);
@@ -387,7 +398,7 @@ namespace at {
         ensureRecording();
         reserve(0);
         if (!beginPass()) return;
-        if (capturing) {
+        if (capturing && !externalPass) {
             const GeometryPool *pool = mesh->pool;
             if (pool->positions) {
                 capture(*mesh->layout, plan.topology, pool->positions->handle, 0,
@@ -399,7 +410,7 @@ namespace at {
             }
             return;
         }
-        bindState(*mesh->layout, plan.topology);
+        if (!bindState(*mesh->layout, plan.topology)) return;
         u32 drawRecord = record();
         if (batchSource != mesh->pool || batchFlat != flat) {
             flushBatch();
@@ -427,10 +438,10 @@ namespace at {
         VkBuffer buffer;
         u64 offset;
         u8 *address = stage(positionBytes + attributeBytes, buffer, offset);
-        layout.write(source, address, address + positionBytes, count);
+        layout.write(source, address, address + positionBytes, count, count % 4 == 0 ? 4 : 0);
         GeometryPool *pool = mesh->pool;
         if (pool->positions && positionBytes > 0) {
-            VkBufferCopy region{offset, u64(mesh->firstVertex) * VertexLayout::POSITION_SIZE, positionBytes};
+            VkBufferCopy region{.srcOffset = offset, .dstOffset = static_cast<u64>(mesh->firstVertex) * VertexLayout::POSITION_SIZE, .size = positionBytes};
             vkCmdCopyBuffer(setup, buffer, pool->positions->handle, 1, &region);
         }
         if (pool->attributes && attributeBytes > 0) {
@@ -443,7 +454,7 @@ namespace at {
 
     void Renderer::releaseMesh(Mesh *mesh) {
         GeometryArena *geometry = contextValue->geometry.get();
-        defer([geometry, mesh] { geometry->release(mesh); });
+        defer([geometry, mesh] { GeometryArena::release(mesh); });
     }
 
     void Renderer::allocateTexture(Texture *texture, u32 levels, u32 width, u32 height) {
@@ -475,8 +486,7 @@ namespace at {
         bool inlineCopy = texture->usedSerial == serial;
         if (inlineCopy) endPass();
         VkCommandBuffer commands = inlineCopy ? main : setup;
-        VkImageLayout oldLayout = inlineCopy ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : texture->layout;
-        if (oldLayout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+        if (VkImageLayout oldLayout = inlineCopy ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : texture->layout; oldLayout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
             imageBarrier(commands, image->handle, VK_IMAGE_ASPECT_COLOR_BIT, image->levels, oldLayout,
                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         }
@@ -572,8 +582,8 @@ namespace at {
                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                      VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         VkBufferImageCopy region{};
-        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        region.imageExtent = {image->width, image->height, 1};
+        region.imageSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1};
+        region.imageExtent = {.width = image->width, .height = image->height, .depth = 1};
         vkCmdCopyImageToBuffer(main, image->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback.handle, 1, &region);
         imageBarrier(main, image->handle, VK_IMAGE_ASPECT_COLOR_BIT, image->levels,
                      VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -680,6 +690,7 @@ namespace at {
         }
         recording = true;
         serial++;
+        fixedSetsBound = true;
         boundPipeline = VK_NULL_HANDLE;
         recordIndex = -1;
         boundSets[0] = boundSets[1] = 0;
@@ -804,7 +815,7 @@ namespace at {
     }
 
     bool Renderer::beginPass() {
-        if (passActive) return true;
+        if (passActive || externalPass) return true;
         VkFramebuffer framebuffer = target->framebuffer();
         if (!framebuffer) {
             pendingClear = 0;
@@ -812,14 +823,15 @@ namespace at {
         }
         VkAttachmentLoadOp colorLoad = (pendingClear & CLEAR_COLOR) ? VK_ATTACHMENT_LOAD_OP_CLEAR : target->loadOp();
         VkAttachmentLoadOp depthLoad = (pendingClear & CLEAR_DEPTH) ? VK_ATTACHMENT_LOAD_OP_CLEAR : target->depthLoadOp();
-        VkClearValue clearValues[2]{};
+        VkClearValue clearValues[18]{};
         std::memcpy(clearValues[0].color.float32, clearColorValue, sizeof(clearColorValue));
-        clearValues[1].depthStencil = {clearDepthValue, 0};
+        u32 depthIndex = std::min(target->depthAttachmentIndex(), 17u);
+        clearValues[depthIndex].depthStencil = {clearDepthValue, 0};
         VkRenderPassBeginInfo info{.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-        info.renderPass = target->pass.handle(colorLoad, depthLoad);
+        info.renderPass = target->renderPass(colorLoad, depthLoad);
         info.framebuffer = framebuffer;
         info.renderArea.extent = {.width = target->width(), .height = target->height()};
-        info.clearValueCount = 2;
+        info.clearValueCount = depthIndex + 1;
         info.pClearValues = clearValues;
         vkCmdBeginRenderPass(main, &info, VK_SUBPASS_CONTENTS_INLINE);
         target->passStarted();
@@ -832,6 +844,10 @@ namespace at {
     }
 
     void Renderer::endPass() {
+        if (externalPass) {
+            flushBatch();
+            return;
+        }
         if (!passActive && pendingClear != 0) beginPass();
         if (!passActive) return;
         flushBatch();
@@ -898,18 +914,58 @@ namespace at {
         return offset;
     }
 
-    void Renderer::bindState(const VertexLayout &layout, u32 topology) {
+    void Renderer::useFixedSets() {
+        if (!fixedSetsBound) bindFixedSets();
+    }
+
+    void Renderer::bindFixedSets() {
+        Context &context = *contextValue;
+        flushBatch();
+        vkCmdBindDescriptorSets(main, VK_PIPELINE_BIND_POINT_GRAPHICS, context.pipelines->layout, 0, 1, &frameSet, 0,
+                                nullptr);
+        if (context.textures->bindless()) {
+            VkDescriptorSet set = static_cast<BindlessTextureTable *>(context.textures.get())->set;
+            vkCmdBindDescriptorSets(main, VK_PIPELINE_BIND_POINT_GRAPHICS, context.pipelines->layout, 1, 1, &set, 0,
+                                    nullptr);
+        }
+        boundSets[0] = boundSets[1] = 0;
+        fixedSetsBound = true;
+    }
+
+    void Renderer::forgetBindings() {
+        boundPipeline = VK_NULL_HANDLE;
+        boundVertexBuffers[0] = boundVertexBuffers[1] = VK_NULL_HANDLE;
+        boundIndexBuffer = VK_NULL_HANDLE;
+        boundIndexOffset = ~0ull;
+        fixedSetsBound = false;
+        state.dirty |= RenderState::VIEWPORT | RenderState::LINE_WIDTH | RenderState::DEPTH_BIAS;
+    }
+
+    void Renderer::bindFramebufferTarget(Framebuffer *framebuffer) {
+        DrawTarget *next = framebuffer ? static_cast<DrawTarget *>(framebuffer) : surface.get();
+        if (next == target) return;
+        endPass();
+        target = next;
+        state.dirty |= RenderState::VIEWPORT | RenderState::ENVIRONMENT;
+    }
+
+    bool Renderer::bindState(const VertexLayout &layout, u32 topology) {
         Context &context = *contextValue;
         if (state.dirty & RenderState::TEXTURES) resolveTextures();
         if (state.dirty & RenderState::ENVIRONMENT) {
             EnvironmentBlock *block;
             currentEnvironment = allocateEnvironment(block);
-            writeEnvironment(block, target->pass.flipY());
+            writeEnvironment(block, !externalPass && target->pass.flipY());
             recordIndex = -1;
             state.dirty &= ~RenderState::ENVIRONMENT;
         }
+        if (externalPass) {
+            flushBatch();
+            return true;
+        }
         u64 pipelineKey = key::draw(state.pipelineState(), topology, target->pass.id, layout.id);
         bindPipeline(context.pipelines->get(pipelineKey, layout, target->pass));
+        useFixedSets();
         if (state.dirty & RenderState::VIEWPORT) {
             flushBatch();
             i32 width = std::max(state.viewportWidth, 1);
@@ -934,6 +990,7 @@ namespace at {
         }
         state.dirty &= ~(RenderState::VIEWPORT | RenderState::LINE_WIDTH | RenderState::DEPTH_BIAS |
                          RenderState::PIPELINE);
+        return true;
     }
 
     void Renderer::resolveTextures() {
@@ -966,10 +1023,18 @@ namespace at {
     }
 
     u32 Renderer::record() {
-        if (recordIndex >= 0 && !(state.dirty & RenderState::TRANSFORM)) return static_cast<u32>(recordIndex);
+        i32 blend[4] = {0, 0, 0, 0};
+        if (state.blending() && externalPass) state.blendFactors(blend);
+        bool fogOff = irisFogOff && externalPass;
+        i32 stage = externalPass ? irisRenderStage : 0;
+        bool blendChanged = std::memcmp(blend, recordBlend, sizeof(blend)) != 0 || fogOff != recordFogOff || stage != recordStage;
+        if (recordIndex >= 0 && !blendChanged && !(state.dirty & RenderState::TRANSFORM)) return static_cast<u32>(recordIndex);
+        std::memcpy(recordBlend, blend, sizeof(blend));
+        recordFogOff = fogOff;
+        recordStage = stage;
         u64 offset = records->allocate(sizeof(DrawRecord), sizeof(DrawRecord));
         bool bindless = contextValue->textures->bindless();
-        writeRecord(reinterpret_cast<DrawRecord *>(records->address(offset)), textureFlags,
+        writeRecord(reinterpret_cast<DrawRecord *>(records->address(offset)), textureFlags | (fogOff ? FOG_OFF_FLAG : 0u),
                     bindless ? static_cast<i32>(textureHandles[0]) : 0,
                     bindless ? static_cast<i32>(textureHandles[1]) : 0);
         recordIndex = static_cast<i64>(offset / sizeof(DrawRecord));
@@ -1051,7 +1116,7 @@ namespace at {
     void Renderer::beginCapture() {
         ensureRecording();
         flushBatch();
-        capturing = contextValue->textures->bindless();
+        capturing = !externalPass && contextValue->textures->bindless();
     }
 
     void Renderer::endCapture() {
@@ -1088,8 +1153,8 @@ namespace at {
             state.dirty &= ~RenderState::ENVIRONMENT;
         }
         u64 pipelineState = state.pipelineState();
-        VkPipeline pipeline = context.pipelines->get(key::draw(pipelineState, topology, target->pass.id, layout.id),
-                                                     layout, target->pass);
+        VkPipeline pipeline = context.pipelines->get(key::draw(pipelineState, topology, target->pass.id, layout.id), layout,
+                                                     target->pass);
         constexpr u32 DYNAMIC = RenderState::VIEWPORT | RenderState::LINE_WIDTH | RenderState::DEPTH_BIAS;
         if (dynamicStates.empty() || (state.dirty & DYNAMIC)) {
             DynamicState dynamic = currentDynamicState();
@@ -1145,6 +1210,7 @@ namespace at {
                 submitBatch();
                 vkCmdBindPipeline(main, VK_PIPELINE_BIND_POINT_GRAPHICS, packet.pipeline);
                 boundPipeline = packet.pipeline;
+                useFixedSets();
             }
             if (packet.dynamic != boundDynamic) {
                 submitBatch();
@@ -1317,7 +1383,7 @@ namespace at {
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.image = image;
         barrier.subresourceRange = {
-            .aspectMask = aspect, .baseMipLevel = 0, .levelCount = levels, .baseArrayLayer = 0, .layerCount = 1
+            .aspectMask = aspect, .baseMipLevel = 0, .levelCount = levels, .baseArrayLayer = 0, .layerCount = VK_REMAINING_ARRAY_LAYERS
         };
         vkCmdPipelineBarrier(commands, pipelineStage(oldLayout), pipelineStage(newLayout), 0, 0, nullptr, 0, nullptr, 1,
                              &barrier);
@@ -1380,7 +1446,7 @@ namespace at {
         for (int light = 0; light < 2; light++) if (state.lights[light]) flags |= ff::LIGHT0 << light;
         if (state.colorMaterialEnabled) flags |= ff::COLOR_MATERIAL;
         flags |= colorMaterialMode(state.colorMaterialMode) << ff::COLOR_MATERIAL_SHIFT;
-        if (state.fogEnabled) flags |= ff::FOG;
+        if (state.fogEnabled && !(externalPass && irisFogDisabled)) flags |= ff::FOG;
         if (state.fogRadialValue) flags |= ff::FOG_RADIAL;
         if (state.alphaTest) flags |= ff::ALPHA_TEST;
         if (state.overlayEnabled) flags |= ff::OVERLAY;
@@ -1402,7 +1468,7 @@ namespace at {
     void Renderer::writeRecord(DrawRecord *drawRecord, u32 flags, i32 texture0, i32 texture1) {
         const float *modelView = state.modelView.top();
         std::memcpy(drawRecord->modelView, modelView, 64);
-        if (state.lighting) {
+        if (state.lighting || externalPass) {
             mat4::normalMatrix(modelView, state.rescaleNormal, &drawRecord->normalMatrix[0][0]);
         }
         std::memcpy(drawRecord->color, state.colorValue, 16);
@@ -1412,9 +1478,41 @@ namespace at {
         drawRecord->normal[3] = 0.0f;
         std::memcpy(drawRecord->texCoord0, state.texCoords, 16);
         std::memcpy(drawRecord->texCoord1, state.texCoords + 4, 16);
+        if (externalPass && !(state.textureEnabled(1) && state.boundTexture(1))) {
+            drawRecord->texCoord1[0] = 240.0f;
+            drawRecord->texCoord1[1] = 240.0f;
+            drawRecord->texCoord1[2] = 0.0f;
+            drawRecord->texCoord1[3] = 1.0f;
+        }
         drawRecord->textures[0] = texture0;
         drawRecord->textures[1] = texture1;
         drawRecord->textures[2] = static_cast<i32>(flags);
         drawRecord->textures[3] = currentEnvironment;
+        drawRecord->ids[0] = state.drawIdValues[0];
+        drawRecord->ids[1] = state.drawIdValues[1];
+        drawRecord->ids[2] = state.drawIdValues[2];
+        drawRecord->ids[3] = recordStage;
+        drawRecord->pbr[0] = 0;
+        drawRecord->pbr[1] = 0;
+        drawRecord->pbr[2] = 0;
+        drawRecord->pbr[3] = 0;
+        drawRecord->blend[0] = recordBlend[0];
+        drawRecord->blend[1] = recordBlend[1];
+        drawRecord->blend[2] = recordBlend[2];
+        drawRecord->blend[3] = recordBlend[3];
+        if (externalPass && contextValue->textures->bindless()) {
+            Texture *albedo = state.textureEnabled(0) ? state.boundTexture(0) : nullptr;
+            drawRecord->pbr[0] = companionHandle(albedo ? albedo->normals : nullptr, defaultNormals);
+            drawRecord->pbr[1] = companionHandle(albedo ? albedo->specular : nullptr, defaultSpecular);
+            drawRecord->pbr[2] = albedo ? static_cast<i32>(albedo->width()) : 0;
+            drawRecord->pbr[3] = albedo ? static_cast<i32>(albedo->height()) : 0;
+        }
+    }
+
+    i32 Renderer::companionHandle(Texture *companion, Texture *fallbackCompanion) {
+        Texture *chosen = companion && companion->complete() ? companion : fallbackCompanion;
+        if (!chosen || !chosen->complete()) chosen = fallback.get();
+        chosen->usedSerial = serial;
+        return static_cast<i32>(chosen->handle());
     }
 } // namespace at

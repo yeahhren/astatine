@@ -8,6 +8,7 @@ namespace at::vk {
     AT_VK_INSTANCE_FUNCTIONS(AT_VK_DEFINE)
     AT_VK_OPTIONAL_INSTANCE_FUNCTIONS(AT_VK_DEFINE)
     AT_VK_DEVICE_FUNCTIONS(AT_VK_DEFINE)
+    AT_VK_OPTIONAL_DEVICE_FUNCTIONS(AT_VK_DEFINE)
 #undef AT_VK_DEFINE
 
     static PFN_vkGetInstanceProcAddr instanceProcAddr = nullptr;
@@ -40,5 +41,12 @@ namespace at::vk {
     if (!name) fail("Vulkan device is missing " #name);
         AT_VK_DEVICE_FUNCTIONS(AT_VK_LOAD)
 #undef AT_VK_LOAD
+#define AT_VK_LOAD_OPTIONAL(name) name = reinterpret_cast<PFN_##name>(vkGetDeviceProcAddr(device, #name));
+        AT_VK_OPTIONAL_DEVICE_FUNCTIONS(AT_VK_LOAD_OPTIONAL)
+#undef AT_VK_LOAD_OPTIONAL
+        if (!vkGetDescriptorSetLayoutSupportKHR) {
+            vkGetDescriptorSetLayoutSupportKHR = reinterpret_cast<PFN_vkGetDescriptorSetLayoutSupportKHR>(
+                vkGetDeviceProcAddr(device, "vkGetDescriptorSetLayoutSupport"));
+        }
     }
 } // namespace at::vk

@@ -3,6 +3,7 @@
 #include "core/common.h"
 #include "core/vk.h"
 #include "memory/range_allocator.h"
+#include "render/commands.h"
 #include "terrain/culling.h"
 #include "terrain/mesher.h"
 #include "terrain/occlusion.h"
@@ -107,6 +108,7 @@ namespace at {
             bool smartCull;
             bool spectator;
             bool cameraInOpaque;
+            bool frustumCull = true;
         };
 
         class Terrain {
@@ -143,6 +145,8 @@ namespace at {
 
             [[nodiscard]] u32 drawn(u32 layer) const { return drawnLayers[layer].load(std::memory_order_relaxed); }
 
+            [[nodiscard]] bool extendedVertices() const { return arenaUnits == EXTENDED_UNITS; }
+
             void setup(const SetupParameters &parameters);
 
             u32 schedule(i32 *out, u32 max);
@@ -152,6 +156,10 @@ namespace at {
             u32 upload(u64 budget, u64 budgetNanos);
 
             u32 draw(u32 layerIndex);
+
+            void beginShadowView(double x, double y, double z, const op::ShadowCulling &culling);
+
+            void endShadowView();
 
             u32 sortTranslucent(u32 limit);
 
@@ -188,12 +196,15 @@ namespace at {
 
             bool frustumVisible(const Section &section) const;
 
+            bool frustumVisible(const Section &section, double originX, double originY, double originZ) const;
+
             void computeFrustum();
 
             void apply(MeshResult &result);
 
             Renderer &renderer;
             std::unique_ptr<VertexArena> arena;
+            u32 arenaUnits = 1;
             std::unique_ptr<StagingPool> staging;
             std::unique_ptr<VertexArena> indexArena;
 
@@ -257,6 +268,9 @@ namespace at {
 
             std::vector<Section *> visible;
             std::vector<Section *> layerVisible[LAYERS];
+            std::vector<Section *> shadowLayers[LAYERS];
+            bool shadowView = false;
+            double shadowX = 0, shadowY = 0, shadowZ = 0;
             std::vector<i32> visibleCoordinates;
             std::vector<GraphNode> graphNodes;
             u64 graphVersion = 1;

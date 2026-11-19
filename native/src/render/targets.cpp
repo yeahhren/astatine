@@ -7,6 +7,14 @@
 #include "vulkan/render_pass.h"
 
 namespace at {
+    VkRenderPass DrawTarget::renderPass(VkAttachmentLoadOp colorLoad, VkAttachmentLoadOp depthLoad) {
+        return pass.handle(colorLoad, depthLoad);
+    }
+
+    bool DrawTarget::hasDepth() const {
+        return pass.hasDepth();
+    }
+
     Framebuffer::Framebuffer(const Device &device, MemoryAllocator &allocator, RenderPassType &pass, u32 width,
                              u32 height)
         : DrawTarget(pass), device(device), widthValue(width), heightValue(height) {

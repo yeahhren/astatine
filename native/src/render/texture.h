@@ -29,11 +29,23 @@ namespace at {
 
         [[nodiscard]] u32 clampFlags() const;
 
+        [[nodiscard]] bool mipmapped() const;
+
+        [[nodiscard]] bool linear() const;
+
+        [[nodiscard]] u32 sampledLevels() const;
+
+        VkImageView sampledView();
+
+        VkSampler sampler() const;
+
         [[nodiscard]] u32 width() const;
 
         [[nodiscard]] u32 height() const;
 
         GpuImage *image = nullptr;
+        Texture *normals = nullptr;
+        Texture *specular = nullptr;
         bool renderTarget = false;
         VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
         u64 usedSerial = 0;
@@ -42,10 +54,6 @@ namespace at {
 
     private:
         static constexpr int CACHE_SIZE = 4;
-
-        [[nodiscard]] bool mipmapped() const;
-
-        [[nodiscard]] bool linear() const;
 
         [[nodiscard]] u32 lastLevel() const;
 

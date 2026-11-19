@@ -107,7 +107,7 @@ namespace at::terrain {
             [[nodiscard]] AT_INLINE u16 state(int x, int y, int z) const { return scratch.states[regionIndex(x, y, z)]; }
             [[nodiscard]] AT_INLINE const BlockInfo &info(int x, int y, int z) const { return tables.blocks[state(x, y, z)]; }
             [[nodiscard]] AT_INLINE bool has(int x, int y, int z, u32 flag) const { return info(x, y, z).flags & flag; }
-            [[nodiscard]] AT_INLINE float ambientLight(int x, int y, int z) const { return has(x, y, z, AO_BLOCKING) ? 0.2f : 1.0f; }
+            [[nodiscard]] AT_INLINE float ambientLight(int x, int y, int z) const { return has(x, y, z, AO_BLOCKING) ? tables.ambientShade : 1.0f; }
 
             [[nodiscard]] int rawLight(bool skyType, int x, int y, int z) const {
                 int worldY = baseY + y;
@@ -181,9 +181,54 @@ namespace at::terrain {
                 std::vector<Vertex> &out = scratch.buckets[layer][layer == TRANSLUCENT ? UNASSIGNED : bucket];
                 float centerU = (uv[0][0] + uv[1][0] + uv[2][0] + uv[3][0]) * 0.25f;
                 float centerV = (uv[0][1] + uv[1][1] + uv[2][1] + uv[3][1]) * 0.25f;
+                Vertex extra{};
+                if (extended) {
+                    float edgeA[3], edgeB[3];
+                    for (int axis = 0; axis < 3; axis++) {
+                        edgeA[axis] = position[1][axis] - position[0][axis];
+                        edgeB[axis] = position[2][axis] - position[0][axis];
+                    }
+                    float normal[3] = {
+                        edgeA[1] * edgeB[2] - edgeA[2] * edgeB[1], edgeA[2] * edgeB[0] - edgeA[0] * edgeB[2],
+                        edgeA[0] * edgeB[1] - edgeA[1] * edgeB[0]
+                    };
+                    normalize(normal);
+                    float du1 = uv[1][0] - uv[0][0], dv1 = uv[1][1] - uv[0][1];
+                    float du2 = uv[2][0] - uv[0][0], dv2 = uv[2][1] - uv[0][1];
+                    float determinant = du1 * dv2 - du2 * dv1;
+                    float scale = determinant != 0.0f ? 1.0f / determinant : 1.0f;
+                    float tangent[3], bitangent[3];
+                    for (int axis = 0; axis < 3; axis++) {
+                        tangent[axis] = (edgeA[axis] * dv2 - edgeB[axis] * dv1) * scale;
+                        bitangent[axis] = (edgeB[axis] * du1 - edgeA[axis] * du2) * scale;
+                    }
+                    normalize(tangent);
+                    float cross[3] = {
+                        tangent[1] * normal[2] - tangent[2] * normal[1], tangent[2] * normal[0] - tangent[0] * normal[2],
+                        tangent[0] * normal[1] - tangent[1] * normal[0]
+                    };
+                    float handedness = cross[0] * bitangent[0] + cross[1] * bitangent[1] + cross[2] * bitangent[2] < 0.0f
+                                           ? -1.0f
+                                           : 1.0f;
+                    i32 id = currentState < tables.packIds.size() ? tables.packIds[currentState] : -1;
+                    extra.a = packSnorm4x8(normal[0], normal[1], normal[2], 0.0f);
+                    extra.b = packSnorm4x8(tangent[0], tangent[1], tangent[2], handedness);
+                    extra.c = packUnorm2x16(centerU, centerV);
+                    extra.d = static_cast<u32>(id + 1) << 1 | (currentFluid ? 1u : 0u);
+                }
                 for (int i = 0; i < 4; i++) {
                     out.push_back(packVertex(position[i][0], position[i][1], position[i][2], uv[i][0], uv[i][1],
                                              centerU, centerV, color[i], light[i] & 0xFFFF, (light[i] >> 16) & 0xFFFF));
+                    if (extended) {
+                        out.push_back(extra);
+                        Vertex middle{};
+                        middle.a = packSigned8((blockCenter[0] - position[i][0]) * 64.0f) |
+                                   packSigned8((blockCenter[1] - position[i][1]) * 64.0f) << 8 |
+                                   packSigned8((blockCenter[2] - position[i][2]) * 64.0f) << 16 |
+                                   static_cast<u32>(currentLight & 0xFF) << 24;
+                        middle.b = 255u - (color[i] >> 24);
+                        out.push_back(middle);
+                    }
                 }
                 if (layer == TRANSLUCENT) {
                     float ax = position[1][0] - position[0][0], ay = position[1][1] - position[0][1],
@@ -206,6 +251,15 @@ namespace at::terrain {
                         (position[0][2] + position[1][2] + position[2][2] + position[3][2]) * 0.25f);
                 }
                 empty = false;
+            }
+
+            static AT_INLINE void normalize(float (&vector)[3]) {
+                float length = std::sqrt(vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2]);
+                if (length > 0.0f) {
+                    vector[0] /= length;
+                    vector[1] /= length;
+                    vector[2] /= length;
+                }
             }
 
             static AT_INLINE u32 multiply(u32 color, float r, float g, float b) {
@@ -468,6 +522,12 @@ namespace at::terrain {
                             ambientOcclusion(x, y, z, quad.face, shape, brightness, light);
                             for (int vertex = 0; vertex < 4; vertex++) {
                                 float b = brightness[vertex];
+                                if (tables.separateAo) {
+                                    u32 base = hasTint ? multiply(quad.color[vertex], tintR, tintG, tintB) : quad.color[vertex];
+                                    u32 alpha = static_cast<u32>(std::clamp(static_cast<int>(b * 255.0f), 0, 255));
+                                    color[vertex] = (base & 0x00FFFFFFu) | alpha << 24;
+                                    continue;
+                                }
                                 color[vertex] = hasTint
                                                     ? multiply(quad.color[vertex], b * tintR, b * tintG, b * tintB)
                                                     : multiply(quad.color[vertex], b, b, b);
@@ -572,7 +632,8 @@ namespace at::terrain {
                 };
                 bool gap = faces & (1 << 6);
                 if (!up && !down && !sides[0] && !sides[1] && !sides[2] && !sides[3]) return;
-                const float j = 0.5f, k = 1.0f, l = 0.8f, m = 0.6f;
+                const bool shading = tables.directionalShading;
+                const float j = shading ? 0.5f : 1.0f, k = 1.0f, l = shading ? 0.8f : 1.0f, m = shading ? 0.6f : 1.0f;
                 float n = liquidHeight(x, y, z, block.liquid);
                 float o = liquidHeight(x, y, z + 1, block.liquid);
                 float p = liquidHeight(x + 1, y, z + 1, block.liquid);
@@ -701,6 +762,12 @@ namespace at::terrain {
                                 opaqueCount++;
                             }
                             if (snapshot.overrides[index] & Snapshot::SKIP) continue;
+                            currentState = raw;
+                            currentFluid = block.renderType == LIQUID;
+                            currentLight = block.light;
+                            blockCenter[0] = static_cast<float>(x) + 0.5f;
+                            blockCenter[1] = static_cast<float>(y) + 0.5f;
+                            blockCenter[2] = static_cast<float>(z) + 0.5f;
                             switch (block.renderType) {
                                 case MODEL: renderModel(x, y, z, index, block);
                                     break;
@@ -722,12 +789,18 @@ namespace at::terrain {
             Scratch &scratch;
             const int baseY;
             const bool sky;
+            u32 currentState = 0;
+            bool currentFluid = false;
+            u8 currentLight = 0;
+            float blockCenter[3] = {};
+            const bool extended = tables.vertexUnits == EXTENDED_UNITS;
         };
     } // namespace
 
     void sortQuads(std::vector<Vertex> &vertices, std::vector<float> &centroids, float cameraX, float cameraY,
-                   float cameraZ) {
-        std::size_t quads = vertices.size() / 4;
+                   float cameraZ, u32 units) {
+        std::size_t quadUnits = std::size_t(4) * units;
+        std::size_t quads = vertices.size() / quadUnits;
         thread_local std::vector<u32> order;
         thread_local std::vector<float> distances;
         thread_local std::vector<Vertex> sortedVertices;
@@ -745,7 +818,7 @@ namespace at::terrain {
         sortedVertices.resize(vertices.size());
         sortedCentroids.resize(centroids.size());
         for (std::size_t i = 0; i < quads; i++) {
-            std::memcpy(&sortedVertices[i * 4], &vertices[order[i] * 4], sizeof(Vertex) * 4);
+            std::memcpy(&sortedVertices[i * quadUnits], &vertices[order[i] * quadUnits], sizeof(Vertex) * quadUnits);
             std::memcpy(&sortedCentroids[i * 3], &centroids[order[i] * 3], sizeof(float) * 3);
         }
         vertices.swap(sortedVertices);
@@ -793,7 +866,7 @@ namespace at::terrain {
             vertices.reserve(total);
             for (u32 bucket = 0; bucket < BUCKETS; bucket++) {
                 auto &source = scratch.buckets[layer][bucket];
-                bucketQuads[bucket] = static_cast<u32>(source.size() / 4);
+                bucketQuads[bucket] = static_cast<u32>(source.size() / (std::size_t(4) * tables.vertexUnits));
                 vertices.insert(vertices.end(), source.begin(), source.end());
             }
             if (layer == TRANSLUCENT) {
@@ -821,7 +894,7 @@ namespace at::terrain {
                 }
                 sortQuads(vertices, centroids, cameraX - static_cast<float>(snapshot.sectionX * 16),
                           cameraY - static_cast<float>(snapshot.sectionY * 16),
-                          cameraZ - static_cast<float>(snapshot.sectionZ * 16));
+                          cameraZ - static_cast<float>(snapshot.sectionZ * 16), tables.vertexUnits);
             }
         }
         return result;

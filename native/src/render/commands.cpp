@@ -8,6 +8,8 @@
 #include "terrain/terrain.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 
 namespace at {
@@ -69,11 +71,13 @@ namespace at {
             try {
                 executeChunk(chunk);
             } catch (const std::exception &error) {
-                std::lock_guard guard(queueLock);
-                if (threadError.empty()) threadError = error.what();
+                std::fprintf(stderr, "Render thread failed: %s\n", error.what());
+                std::fflush(stderr);
+                std::_Exit(1);
             } catch (...) {
-                std::lock_guard guard(queueLock);
-                if (threadError.empty()) threadError = "unknown native error";
+                std::fprintf(stderr, "Render thread failed: unknown native error\n");
+                std::fflush(stderr);
+                std::_Exit(1);
             }
             {
                 std::lock_guard guard(queueLock);
@@ -219,6 +223,21 @@ namespace at {
                               data + sizeof(op::TextureUpload), command.width);
                 break;
             }
+            case op::TEXTURE_COMPANIONS: {
+                auto command = load<op::TextureCompanions>(data);
+                auto *normals = reinterpret_cast<Texture *>(command.normals);
+                auto *specular = reinterpret_cast<Texture *>(command.specular);
+                if (command.texture) {
+                    auto *texture = reinterpret_cast<Texture *>(command.texture);
+                    texture->normals = normals;
+                    texture->specular = specular;
+                } else {
+                    defaultNormals = normals;
+                    defaultSpecular = specular;
+                }
+                recordIndex = -1;
+                break;
+            }
             case op::TEXTURE_DETACH:
                 reinterpret_cast<Texture *>(load<op::Handle>(data).value)->detach();
                 break;
@@ -260,7 +279,8 @@ namespace at {
                 terrain::SetupParameters parameters{
                     .x = command.x, .y = command.y, .z = command.z, .eyeHeight = command.eyeHeight,
                     .frame = command.frame, .lookFace = command.lookFace, .smartCull = (command.flags & 1) != 0,
-                    .spectator = (command.flags & 2) != 0, .cameraInOpaque = (command.flags & 4) != 0
+                    .spectator = (command.flags & 2) != 0, .cameraInOpaque = (command.flags & 4) != 0,
+                    .frustumCull = (command.flags & 8) == 0
                 };
                 terrain->setup(parameters);
                 terrain->publish(command.scheduleCap);
@@ -284,6 +304,27 @@ namespace at {
             }
             case op::TERRAIN_SORT:
                 terrain->sortTranslucent(load<op::Flag>(data).value);
+                break;
+            case op::IRIS_DRAW_STATE: {
+                auto command = load<op::Flag>(data);
+                flushBatch();
+                irisRenderStage = static_cast<i32>(command.value);
+                bool fogOff = (command.pad & 1) != 0;
+                bool fogDisabled = (command.pad & 2) != 0;
+                if (fogDisabled != irisFogDisabled) state.dirty |= RenderState::ENVIRONMENT;
+                irisFogOff = fogOff;
+                irisFogDisabled = fogDisabled;
+                break;
+            }
+            case op::TERRAIN_SHADOW_VIEW: {
+                auto command = load<op::TerrainShadowView>(data);
+                flushBatch();
+                if (terrain) terrain->beginShadowView(command.camera[0], command.camera[1], command.camera[2], command.culling);
+                break;
+            }
+            case op::TERRAIN_SHADOW_VIEW_END:
+                flushBatch();
+                if (terrain) terrain->endShadowView();
                 break;
             case op::TERRAIN_DRAW: {
                 u32 layer = load<op::Flag>(data).value & 3;
@@ -469,6 +510,9 @@ namespace at {
                 }
                 case op::RELEASE_MESH: releaseMesh(reinterpret_cast<Mesh *>(p(0)));
                     slots = 2;
+                    break;
+                case op::DRAW_IDS: s.drawIds(i(0), i(1), i(2));
+                    slots = 3;
                     break;
                 default:
                     if (code >= op::FIRST_NATIVE) {

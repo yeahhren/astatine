@@ -3,6 +3,7 @@ package yt.ren.astatine.window
 import net.fabricmc.loader.api.FabricLoader
 import org.lwjgl.sdl.SDL
 import org.lwjgl.sdl.SDLError.SDL_GetError
+import org.lwjgl.sdl.SDLHints.*
 import org.lwjgl.sdl.SDLProperties.*
 import org.lwjgl.sdl.SDLVideo.*
 import pl.tomgirl.pylon.window.DisplaySdl
@@ -11,6 +12,8 @@ import pl.tomgirl.pylon.window.MainThread
 import yt.ren.astatine.Native
 import yt.ren.astatine.NativeLoader
 import yt.ren.astatine.render.GL
+import java.nio.file.Files
+import java.nio.file.Path
 
 class VulkanSurface : GpuSurface {
     private var window = 0L
@@ -19,20 +22,23 @@ class VulkanSurface : GpuSurface {
     override fun createWindow(title: String, width: Int, height: Int, resizable: Boolean): Long {
         check(window == 0L) { "Surface has already been created" }
         NativeLoader.load()
+        locateVulkanLibrary()
         MainThread.run { window = createSdlWindow(title, width, height, resizable) }
         val sdl = SDL.getLibrary()
         val cache = FabricLoader.getInstance().gameDir.resolve("astatine").resolve("pipelines.bin")
-        Native.initialize(
-            window,
-            sdl.getFunctionAddress("SDL_Vulkan_GetInstanceExtensions"),
-            sdl.getFunctionAddress("SDL_Vulkan_CreateSurface"),
-            sdl.getFunctionAddress("SDL_Vulkan_DestroySurface"),
-            sdl.getFunctionAddress("SDL_Vulkan_GetVkGetInstanceProcAddr"),
-            sdl.getFunctionAddress("SDL_GetWindowSizeInPixels"),
-            SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, 0L),
-            java.lang.Boolean.getBoolean("astatine.validation"),
-            cache.toAbsolutePath().toString(),
-        )
+        MainThread.run {
+            Native.initialize(
+                window,
+                sdl.getFunctionAddress("SDL_Vulkan_GetInstanceExtensions"),
+                sdl.getFunctionAddress("SDL_Vulkan_CreateSurface"),
+                sdl.getFunctionAddress("SDL_Vulkan_DestroySurface"),
+                sdl.getFunctionAddress("SDL_Vulkan_GetVkGetInstanceProcAddr"),
+                sdl.getFunctionAddress("SDL_GetWindowSizeInPixels"),
+                SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, 0L),
+                java.lang.Boolean.getBoolean("astatine.validation"),
+                cache.toAbsolutePath().toString(),
+            )
+        }
         GL.attach()
         ready = true
         return window
@@ -58,6 +64,15 @@ class VulkanSurface : GpuSurface {
             MainThread.run { SDL_DestroyWindow(handle) }
             window = 0L
         }
+    }
+
+    private fun locateVulkanLibrary() {
+        if (!System.getProperty("os.name").startsWith("Mac")) return
+        if (SDL_GetHint(SDL_HINT_VULKAN_LIBRARY) != null) return
+        val library = sequenceOf("/opt/homebrew/lib", "/usr/local/lib")
+            .map { Path.of(it, "libvulkan.1.dylib") }
+            .firstOrNull { Files.exists(it) } ?: return
+        SDL_SetHint(SDL_HINT_VULKAN_LIBRARY, library.toString())
     }
 
     private fun createSdlWindow(title: String, width: Int, height: Int, resizable: Boolean): Long {

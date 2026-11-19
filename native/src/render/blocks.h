@@ -31,9 +31,12 @@ namespace at {
         float texCoord0[4];
         float texCoord1[4];
         i32 textures[4];
+        i32 ids[4];
+        i32 pbr[4];
+        i32 blend[4];
     };
 
-    static_assert(sizeof(DrawRecord) == 192);
+    static_assert(sizeof(DrawRecord) == 240);
 
     struct SectionDraw {
         float offset[3];

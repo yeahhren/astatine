@@ -31,6 +31,9 @@ struct Draw {
     vec4 texCoord0;
     vec4 texCoord1;
     ivec4 textures;
+    ivec4 ids;
+    ivec4 pbr;
+    ivec4 blend;
 };
 
 layout(set = 0, binding = 1, std430) readonly buffer Draws {

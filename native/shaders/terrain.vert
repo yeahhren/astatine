@@ -1,6 +1,8 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 
+invariant gl_Position;
+
 #include "fixed_function.glsl"
 
 layout(location = 0) in uvec4 inVertex;
@@ -27,7 +29,6 @@ void main() {
     Draw draw = draws[section.w];
     environmentIndex = draw.textures.w;
     vec3 local = vec3(position) * POSITION_SCALE - POSITION_OFFSET;
-    local = (local - 8.0) * 1.000001 + 8.0;
     vec4 eye = draw.modelView * vec4(local + uintBitsToFloat(section.xyz), 1.0);
     gl_Position = environment.projection * eye;
     vEye = eye.xyz;
